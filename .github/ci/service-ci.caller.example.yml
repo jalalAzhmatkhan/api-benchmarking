@@ -1,0 +1,30 @@
+# Copy to .github/workflows/ci-<stack>.yml when implementing a service (Phase 2).
+# The test command MUST enforce 100 % coverage; the pipeline then builds the image, starts it next
+# to PostgreSQL, checks the pool size and runs the conformance suite.
+name: CI go-gin
+
+on:
+  push:
+    branches: [develop, master]
+    tags: ["v*"]
+    paths: ["services/go-gin/**", "contract/**", "db/**", ".github/workflows/service-ci.yml", ".github/workflows/ci-go-gin.yml"]
+  pull_request:
+    paths: ["services/go-gin/**", "contract/**", "db/**", ".github/workflows/service-ci.yml", ".github/workflows/ci-go-gin.yml"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  ci:
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: go-gin
+      toolchain: go
+      toolchain-version: "1.27.1"
+      lint-command: gofmt -l . | (! grep .) && go vet ./...
+      test-command: |
+        go test ./... -covermode=atomic -coverprofile=cover.out
+        test "$(go tool cover -func=cover.out | awk '/^total:/{print $3}')" = "100.0%"
+      # run-env: |
+      #   WORKERS=2

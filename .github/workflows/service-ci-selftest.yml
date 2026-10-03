@@ -1,0 +1,28 @@
+name: Service CI self-test
+
+# Exercises the reusable pipeline end to end (lint, tests, image build, run next to PostgreSQL,
+# conformance) using the contract mock as a stand-in service. No publishing.
+
+on:
+  push:
+    branches: [develop, master]
+    paths: [".github/workflows/service-ci.yml", ".github/workflows/service-ci-selftest.yml", "contract/**", "db/**", "deploy/compose.dev.yaml"]
+  pull_request:
+    paths: [".github/workflows/service-ci.yml", ".github/workflows/service-ci-selftest.yml", "contract/**", "db/**", "deploy/compose.dev.yaml"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  mock:
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: mock
+      path: contract/mock
+      toolchain: python
+      toolchain-version: "3.14"
+      lint-command: python -m py_compile server.py
+      test-command: python -m py_compile server.py
+      expected-pool: 0
+      publish: false
