@@ -73,5 +73,5 @@ jobs:
 
       - name: First id after reset is 100001
         run: |
-          id=$(psql -tAc "INSERT INTO items (name, price_cents, quantity) VALUES ('first', 1, 1) RETURNING id")
+          id=$(psql -qtAc "INSERT INTO items (name, price_cents, quantity) VALUES ('first', 1, 1) RETURNING id")
           test "$id" = "100001"
