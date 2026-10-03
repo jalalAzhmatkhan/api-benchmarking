@@ -8,6 +8,7 @@ Infrastructure for the benchmark VMs. Design: `Documentation/plans/deployment-pl
 | `provision/remote.sh` | Runs a role from GitHub Actions over password SSH (password comes from the env secret) |
 | `sysctl/99-bench.conf` | Network/FD tuning, identical on both VMs |
 | `docker/daemon.json` | Docker daemon config for DEV_SERVER |
+| `compose.dev.yaml` | Local development: PostgreSQL 18.6 + schema/seed init, optional contract mock (`--profile mock`). Not the benchmark topology |
 
 ## Provisioning the VMs
 Run the **Provision VMs** workflow (Actions → Provision VMs → Run workflow), or:
@@ -35,3 +36,14 @@ LG↔SUT RTT. If a kernel update needs it, the VMs reboot automatically one minu
 Firewall rules (`ufw`) and disabling SSH password authentication are **not** applied yet, because the
 workflow logs in with the password. They will be enabled once CI uses an SSH deploy key. Until then, restrict
 port 22 (and later 8080) in the cloud provider's security group.
+
+## Local development
+```bash
+cp .env.example .env                                                  # optional, defaults work
+docker compose -f deploy/compose.dev.yaml up -d postgres              # database
+docker compose -f deploy/compose.dev.yaml run --rm db-init            # schema + 100 000 seed rows (idempotent)
+docker compose -f deploy/compose.dev.yaml --profile mock up -d mock   # reference API on :8080
+k6 run -e BASE_URL=http://127.0.0.1:8080 contract/conformance.js
+DB_CONTAINER=bench-postgres db/reset.sh                               # back to the pristine seed
+docker compose -f deploy/compose.dev.yaml down -v
+```
