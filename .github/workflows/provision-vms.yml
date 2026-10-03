@@ -1,0 +1,139 @@
+name: Provision VMs
+
+# Manual, idempotent provisioning of the benchmark VMs.
+#   K6_SERVER  → load generator (k6, tuning, bench SSH key)
+#   DEV_SERVER → system under test (Docker, tuning, authorizes the k6 bench key)
+#   link       → configures `ssh sut` from K6_SERVER to DEV_SERVER and measures RTT
+#   finalize   → host report (steal, PSI, limits) and reboot if a kernel update requires it
+# Each environment provides vars VM_IP_ADDRESS, VM_USERNAME and secret VM_PASSWORD.
+# Tip: this repo is public, so define VM_IP_ADDRESS as an environment *secret* as well to keep
+# it masked in logs (the workflow prefers the secret when present).
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: VM(s) to provision
+        type: choice
+        options: [both, k6, dev]
+        default: both
+      k6_version:
+        description: k6 version for K6_SERVER (keep in sync with VERSIONS.md)
+        type: string
+        default: "2.3.0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provision-vms
+  cancel-in-progress: false
+
+jobs:
+  k6-server:
+    name: K6_SERVER — load generator
+    if: inputs.target != 'dev'
+    runs-on: ubuntu-latest
+    environment: K6_SERVER
+    timeout-minutes: 30
+    outputs:
+      bench_pubkey: ${{ steps.provision.outputs.bench_pubkey }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install sshpass
+        run: sudo apt-get update -q && sudo apt-get install -y -q sshpass
+      - name: Provision
+        id: provision
+        env:
+          VM_HOST: ${{ secrets.VM_IP_ADDRESS || vars.VM_IP_ADDRESS }}
+          VM_USER: ${{ vars.VM_USERNAME }}
+          SSHPASS: ${{ secrets.VM_PASSWORD }}
+          K6_VERSION: ${{ inputs.k6_version }}
+          SUMMARY_TITLE: K6_SERVER
+        run: bash deploy/provision/remote.sh k6
+
+  dev-server:
+    name: DEV_SERVER — system under test
+    needs: k6-server
+    if: >-
+      always() && inputs.target != 'k6' &&
+      (needs.k6-server.result == 'success' || needs.k6-server.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: DEV_SERVER
+    timeout-minutes: 30
+    outputs:
+      sut_public_ip: ${{ steps.provision.outputs.sut_public_ip }}
+      sut_private_ip: ${{ steps.provision.outputs.sut_private_ip }}
+      sut_hostkey: ${{ steps.provision.outputs.sut_hostkey }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install sshpass
+        run: sudo apt-get update -q && sudo apt-get install -y -q sshpass
+      - name: Provision
+        id: provision
+        env:
+          VM_HOST: ${{ secrets.VM_IP_ADDRESS || vars.VM_IP_ADDRESS }}
+          VM_USER: ${{ vars.VM_USERNAME }}
+          SSHPASS: ${{ secrets.VM_PASSWORD }}
+          K6_PUBKEY: ${{ needs.k6-server.outputs.bench_pubkey }}
+          SUMMARY_TITLE: DEV_SERVER
+        run: |
+          bash deploy/provision/remote.sh dev "$K6_PUBKEY"
+          echo "sut_public_ip=$VM_HOST" >> "$GITHUB_OUTPUT"
+
+  link:
+    name: Link K6_SERVER → DEV_SERVER
+    needs: [k6-server, dev-server]
+    if: inputs.target == 'both'
+    runs-on: ubuntu-latest
+    environment: K6_SERVER
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install sshpass
+        run: sudo apt-get update -q && sudo apt-get install -y -q sshpass
+      - name: Configure `ssh sut` for the bench user
+        env:
+          VM_HOST: ${{ secrets.VM_IP_ADDRESS || vars.VM_IP_ADDRESS }}
+          VM_USER: ${{ vars.VM_USERNAME }}
+          SSHPASS: ${{ secrets.VM_PASSWORD }}
+          SUT_PUBLIC_IP: ${{ needs.dev-server.outputs.sut_public_ip }}
+          SUT_PRIVATE_IP: ${{ needs.dev-server.outputs.sut_private_ip }}
+          SUT_HOSTKEY: ${{ needs.dev-server.outputs.sut_hostkey }}
+          SUMMARY_TITLE: K6_SERVER → DEV_SERVER
+        run: bash deploy/provision/remote.sh link "${SUT_PUBLIC_IP:--} ${SUT_PRIVATE_IP:--} ${SUT_HOSTKEY}"
+
+  finalize:
+    name: Report & reboot if required (${{ matrix.env }})
+    needs: [k6-server, dev-server, link]
+    if: >-
+      always() && !cancelled() &&
+      !contains(needs.*.result, 'failure')
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [K6_SERVER, DEV_SERVER]
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.env }}
+    timeout-minutes: 10
+    steps:
+      - name: Skip VMs not targeted
+        id: gate
+        run: |
+          case "${{ inputs.target }}:${{ matrix.env }}" in
+            both:*|k6:K6_SERVER|dev:DEV_SERVER) echo "run=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "run=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.run == 'true'
+      - name: Install sshpass
+        if: steps.gate.outputs.run == 'true'
+        run: sudo apt-get update -q && sudo apt-get install -y -q sshpass
+      - name: Finalize
+        if: steps.gate.outputs.run == 'true'
+        env:
+          VM_HOST: ${{ secrets.VM_IP_ADDRESS || vars.VM_IP_ADDRESS }}
+          VM_USER: ${{ vars.VM_USERNAME }}
+          SSHPASS: ${{ secrets.VM_PASSWORD }}
+          SUMMARY_TITLE: ${{ matrix.env }}
+        run: bash deploy/provision/remote.sh finalize
