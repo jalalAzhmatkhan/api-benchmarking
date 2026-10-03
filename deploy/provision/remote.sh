@@ -10,7 +10,9 @@ set -euo pipefail
 
 ROLE="${1:?role required}"
 ARG_B64="$(printf '%s' "${2:-}" | base64 -w0)"
-: "${VM_HOST:?}" "${VM_USER:?}" "${SSHPASS:?}"
+: "${VM_HOST:?VM_IP_ADDRESS secret is missing for this environment}" "${VM_USER:?}" "${SSHPASS:?}"
+# Defence in depth: never let the address reach a public log, even if it came from a plain variable.
+echo "::add-mask::${VM_HOST}"
 export SSHPASS
 TMP="${RUNNER_TEMP:-/tmp}"
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
