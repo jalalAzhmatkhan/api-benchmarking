@@ -1,0 +1,34 @@
+name: Contract lint
+
+on:
+  push:
+    branches: [develop, master]
+    paths: ["contract/openapi.yaml", "contract/.spectral.yaml", ".github/workflows/contract-lint.yml"]
+  pull_request:
+    paths: ["contract/openapi.yaml", "contract/.spectral.yaml", ".github/workflows/contract-lint.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  openapi:
+    name: OpenAPI (Spectral)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+      - name: Lint contract/openapi.yaml
+        run: npx --yes @stoplight/spectral-cli@6.17.0 lint contract/openapi.yaml --ruleset contract/.spectral.yaml --fail-severity=error
+      - name: Contract has exactly one GET, POST, PUT and DELETE
+        run: |
+          python3 - <<'PY'
+          import re, sys, yaml
+          spec = yaml.safe_load(open("contract/openapi.yaml"))
+          ops = sorted(f"{m.upper()} {p}" for p, item in spec["paths"].items() for m in item if m in ("get","post","put","delete","patch","head","options"))
+          want = ["DELETE /items/{id}", "GET /items/{id}", "POST /items", "PUT /items/{id}"]
+          print("operations:", ops)
+          sys.exit(0 if ops == want else f"contract must define exactly {want}")
+          PY

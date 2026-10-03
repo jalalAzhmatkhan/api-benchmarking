@@ -1,0 +1,12 @@
+# OpenAPI lint rules for the shared benchmark contract.
+extends: ["spectral:oas"]
+rules:
+  # Benchmark builds expose no docs/contact/license metadata and no tags (4 operations only).
+  info-contact: off
+  info-description: warn
+  operation-tags: off
+  operation-description: off
+  tag-description: off
+  # Contract strictness: every operation must have an operationId and declare its error responses.
+  operation-operationId: error
+  operation-success-response: error
