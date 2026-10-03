@@ -1,0 +1,211 @@
+name: Service CI (reusable)
+
+# Reusable pipeline for every benchmarked service:
+#   verify  → toolchain setup, lint, unit tests with the 100 % coverage gate (the test command enforces it)
+#   image   → docker build (linux/amd64), start next to the dev PostgreSQL, check the pool size via
+#             pg_stat_activity, run the contract conformance suite, push to GHCR (develop/master/tags only)
+# Callers: see .github/ci/service-ci.caller.example.yml. Grant `packages: write` in the caller to publish.
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: Folder name under services/ (also the image name)
+        type: string
+        required: true
+      toolchain:
+        description: python | node | java | dotnet | go | rust
+        type: string
+        required: true
+      toolchain-version:
+        description: Version for the setup action (VERSIONS.md). Ignored for rust (use setup-command)
+        type: string
+        default: ""
+      setup-command:
+        description: Optional extra setup (runs in the service folder before lint), e.g. install cargo-llvm-cov
+        type: string
+        default: ""
+      lint-command:
+        description: Lint / format check (runs in the service folder)
+        type: string
+        required: true
+      test-command:
+        description: Unit tests; MUST fail below 100 % coverage (runs in the service folder)
+        type: string
+        required: true
+      path:
+        description: Service folder, also the Docker build context (default services/<service>)
+        type: string
+        default: ""
+      expected-pool:
+        description: Expected number of `bench` PostgreSQL connections after startup (0 skips the check)
+        type: number
+        default: 10
+      run-env:
+        description: Extra container environment, one KEY=VALUE per line (e.g. WORKERS=2)
+        type: string
+        default: ""
+      publish:
+        description: Push the image to GHCR on develop/master/tag pushes
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  K6_IMAGE: grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34
+  COMPOSE: docker compose -f deploy/compose.dev.yaml
+
+jobs:
+  verify:
+    name: Lint and 100 % coverage (${{ inputs.service }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ${{ inputs.path != '' && inputs.path || format('services/{0}', inputs.service) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        if: inputs.toolchain == 'python'
+        with:
+          python-version: ${{ inputs.toolchain-version }}
+      - uses: astral-sh/setup-uv@v10
+        if: inputs.toolchain == 'python'
+      - uses: actions/setup-node@v7
+        if: inputs.toolchain == 'node'
+        with:
+          node-version: ${{ inputs.toolchain-version }}
+      - uses: actions/setup-java@v6
+        if: inputs.toolchain == 'java'
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.toolchain-version }}
+      - uses: actions/setup-dotnet@v6
+        if: inputs.toolchain == 'dotnet'
+        with:
+          dotnet-version: ${{ inputs.toolchain-version }}
+      - uses: actions/setup-go@v7
+        if: inputs.toolchain == 'go'
+        with:
+          go-version: ${{ inputs.toolchain-version }}
+      - name: Rust toolchain
+        if: inputs.toolchain == 'rust'
+        run: |
+          rustup toolchain install "${{ inputs.toolchain-version || 'stable' }}" --profile minimal -c clippy -c rustfmt -c llvm-tools-preview
+          rustup default "${{ inputs.toolchain-version || 'stable' }}"
+          rustc --version
+
+      - name: Extra setup
+        if: inputs.setup-command != ''
+        run: ${{ inputs.setup-command }}
+      - name: Lint
+        run: ${{ inputs.lint-command }}
+      - name: Unit tests (100 % coverage gate)
+        run: ${{ inputs.test-command }}
+
+  image:
+    name: Image, pool check and conformance (${{ inputs.service }})
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      CONTEXT: ${{ inputs.path != '' && inputs.path || format('services/{0}', inputs.service) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Image name
+        id: img
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}/${{ inputs.service }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build (linux/amd64)
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ env.CONTEXT }}
+          platforms: linux/amd64
+          load: true
+          tags: ${{ steps.img.outputs.name }}:ci
+          cache-from: type=gha,scope=${{ inputs.service }}
+          cache-to: type=gha,scope=${{ inputs.service }},mode=max
+
+      - name: Start PostgreSQL and seed
+        run: |
+          $COMPOSE up -d postgres
+          $COMPOSE run --rm db-init
+
+      - name: Start the service (host network, same env contract as production)
+        env:
+          RUN_ENV: ${{ inputs.run-env }}
+        run: |
+          args=()
+          while IFS= read -r line; do [ -n "$line" ] && args+=(-e "$line"); done <<< "$RUN_ENV"
+          docker run -d --name sut --network host \
+            -e DATABASE_URL=postgres://bench:bench@127.0.0.1:5432/bench \
+            -e PORT=8080 -e DB_POOL_SIZE=10 "${args[@]}" "${{ steps.img.outputs.name }}:ci"
+          for i in $(seq 1 60); do (exec 3<>/dev/tcp/127.0.0.1/8080) 2>/dev/null && break; sleep 1; done
+          (exec 3<>/dev/tcp/127.0.0.1/8080) 2>/dev/null || { docker logs sut; echo "service did not open :8080"; exit 1; }
+
+      - name: Pool size is exactly the specified value within 5 s of startup
+        if: inputs.expected-pool > 0
+        run: |
+          want=${{ inputs.expected-pool }}
+          sql="SELECT count(*) FROM pg_stat_activity WHERE usename='bench' AND backend_type='client backend' AND pid <> pg_backend_pid()"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            have=$(docker exec bench-postgres psql -U bench -d bench -tAc "$sql")
+            echo "attempt $i: $have connections (want $want)"
+            [ "$have" = "$want" ] && exit 0
+            sleep 1
+          done
+          docker logs sut | tail -30
+          exit 1
+
+      - name: Conformance suite (100 %)
+        run: |
+          docker run --rm --network host -v "$PWD/contract:/contract:ro" "$K6_IMAGE" \
+            run --quiet -e BASE_URL=http://127.0.0.1:8080 /contract/conformance.js
+
+      - name: Service logs on failure
+        if: failure()
+        run: docker logs sut | tail -80
+
+      - name: Log in to GHCR
+        if: inputs.publish && github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to GHCR
+        id: push
+        if: inputs.publish && github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ env.CONTEXT }}
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.img.outputs.name }}:sha-${{ github.sha }}
+            ${{ steps.img.outputs.name }}:${{ github.ref_name }}
+          cache-from: type=gha,scope=${{ inputs.service }}
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ${{ inputs.service }}"
+            echo "- image: \`${{ steps.img.outputs.name }}\`"
+            echo "- digest: \`${{ steps.push.outputs.digest || 'not pushed (PR or publish=false)' }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tear down
+        if: always()
+        run: |
+          docker rm -f sut 2>/dev/null || true
+          $COMPOSE down -v
