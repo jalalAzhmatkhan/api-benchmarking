@@ -6,8 +6,8 @@ name: Provision VMs
 #   link       → configures `ssh sut` from K6_SERVER to DEV_SERVER and measures RTT
 #   finalize   → host report (steal, PSI, limits) and reboot if a kernel update requires it
 # Each environment provides vars VM_IP_ADDRESS, VM_USERNAME and secret VM_PASSWORD.
-# Tip: this repo is public, so define VM_IP_ADDRESS as an environment *secret* as well to keep
-# it masked in logs (the workflow prefers the secret when present).
+# This repo is public, so VM_IP_ADDRESS MUST be an environment *secret* (variables are never masked
+# and would show up in the step `env:` headers). Only the secret is read; the job fails if it is missing.
 
 on:
   workflow_dispatch:
@@ -45,7 +45,7 @@ jobs:
       - name: Provision
         id: provision
         env:
-          VM_HOST: ${{ secrets.VM_IP_ADDRESS || vars.VM_IP_ADDRESS }}
+          VM_HOST: ${{ secrets.VM_IP_ADDRESS }}
           VM_USER: ${{ vars.VM_USERNAME }}
           SSHPASS: ${{ secrets.VM_PASSWORD }}
           K6_VERSION: ${{ inputs.k6_version }}
@@ -62,7 +62,6 @@ jobs:
     environment: DEV_SERVER
     timeout-minutes: 30
     outputs:
-      sut_public_ip: ${{ steps.provision.outputs.sut_public_ip }}
       sut_private_ip: ${{ steps.provision.outputs.sut_private_ip }}
       sut_hostkey: ${{ steps.provision.outputs.sut_hostkey }}
     steps:
@@ -72,14 +71,12 @@ jobs:
       - name: Provision
         id: provision
         env:
-          VM_HOST: ${{ secrets.VM_IP_ADDRESS || vars.VM_IP_ADDRESS }}
+          VM_HOST: ${{ secrets.VM_IP_ADDRESS }}
           VM_USER: ${{ vars.VM_USERNAME }}
           SSHPASS: ${{ secrets.VM_PASSWORD }}
           K6_PUBKEY: ${{ needs.k6-server.outputs.bench_pubkey }}
           SUMMARY_TITLE: DEV_SERVER
-        run: |
-          bash deploy/provision/remote.sh dev "$K6_PUBKEY"
-          echo "sut_public_ip=$VM_HOST" >> "$GITHUB_OUTPUT"
+        run: bash deploy/provision/remote.sh dev "$K6_PUBKEY"
 
   link:
     name: Link K6_SERVER → DEV_SERVER
@@ -94,14 +91,13 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q sshpass
       - name: Configure `ssh sut` for the bench user
         env:
-          VM_HOST: ${{ secrets.VM_IP_ADDRESS || vars.VM_IP_ADDRESS }}
+          VM_HOST: ${{ secrets.VM_IP_ADDRESS }}
           VM_USER: ${{ vars.VM_USERNAME }}
           SSHPASS: ${{ secrets.VM_PASSWORD }}
-          SUT_PUBLIC_IP: ${{ needs.dev-server.outputs.sut_public_ip }}
           SUT_PRIVATE_IP: ${{ needs.dev-server.outputs.sut_private_ip }}
           SUT_HOSTKEY: ${{ needs.dev-server.outputs.sut_hostkey }}
           SUMMARY_TITLE: K6_SERVER → DEV_SERVER
-        run: bash deploy/provision/remote.sh link "${SUT_PUBLIC_IP:--} ${SUT_PRIVATE_IP:--} ${SUT_HOSTKEY}"
+        run: bash deploy/provision/remote.sh link "- ${SUT_PRIVATE_IP} ${SUT_HOSTKEY}"
 
   finalize:
     name: Report & reboot if required (${{ matrix.env }})
@@ -132,7 +128,7 @@ jobs:
       - name: Finalize
         if: steps.gate.outputs.run == 'true'
         env:
-          VM_HOST: ${{ secrets.VM_IP_ADDRESS || vars.VM_IP_ADDRESS }}
+          VM_HOST: ${{ secrets.VM_IP_ADDRESS }}
           VM_USER: ${{ vars.VM_USERNAME }}
           SSHPASS: ${{ secrets.VM_PASSWORD }}
           SUMMARY_TITLE: ${{ matrix.env }}
