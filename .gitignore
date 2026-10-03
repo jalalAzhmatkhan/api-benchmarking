@@ -1,0 +1,91 @@
+# ─── Secrets & local environment ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+secrets/
+
+# ─── OS / editors ────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.iml
+*.code-workspace
+
+# ─── Tooling caches (token economy tools, local only) ────────────────────────
+graphify-out/
+.rtk/
+.claude/settings.local.json
+
+# ─── Python (services/python-fastapi, analysis) ──────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.egg-info/
+.ipynb_checkpoints/
+
+# ─── Node.js (services/node-fastify) ─────────────────────────────────────────
+node_modules/
+dist/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+npm-debug.log*
+
+# ─── Java (services/java-springboot) ─────────────────────────────────────────
+target/
+!.mvn/wrapper/maven-wrapper.jar
+.gradle/
+build/
+*.class
+hs_err_pid*.log
+
+# ─── .NET (services/csharp-dotnet) ───────────────────────────────────────────
+bin/
+obj/
+TestResults/
+*.user
+*.suo
+.vs/
+coverage.cobertura.xml
+
+# ─── Go (services/go-gin) ────────────────────────────────────────────────────
+*.test
+*.out
+cover.out
+/services/go-gin/server
+
+# ─── Rust (services/rust-axum) ───────────────────────────────────────────────
+# (shares target/ with Java above)
+*.profraw
+*.profdata
+lcov.info
+
+# ─── Benchmark outputs ───────────────────────────────────────────────────────
+# Raw k6/sampler data is large: publish it as release assets, commit summaries only.
+results/**/raw.csv*
+results/**/*.csv.gz
+results/**/*.json.gz
+results/**/tmp/
+loadtest/**/*.csv
+*.log
+
+# ─── Analysis artefacts (regenerated from results/) ──────────────────────────
+analysis/out/

@@ -1,0 +1,75 @@
+# graphify knowledge-graph exclusions (fnmatch patterns, matched against each path segment).
+# Goal: keep the graph to source code, specs, scripts and docs. Skip anything generated,
+# vendored, binary or bulky so `graphify update` stays fast and the graph stays meaningful.
+
+# VCS / tooling
+.git
+.github/ISSUE_TEMPLATE
+graphify-out
+.claude
+.rtk
+
+# Dependencies & virtual environments
+node_modules
+.venv
+venv
+vendor
+.mvn
+.gradle
+
+# Build outputs
+target
+build
+dist
+bin
+obj
+out
+*.tsbuildinfo
+*.class
+*.jar
+*.dll
+*.exe
+*.so
+*.pdb
+
+# Test / coverage artefacts
+coverage
+htmlcov
+TestResults
+.pytest_cache
+.ruff_cache
+.mypy_cache
+__pycache__
+.coverage*
+*.profraw
+*.profdata
+lcov.info
+cover.out
+coverage.xml
+coverage.cobertura.xml
+
+# Lockfiles (huge, no architectural signal)
+uv.lock
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+Cargo.lock
+go.sum
+packages.lock.json
+
+# Benchmark data (raw time series; summaries are analysed separately)
+results
+*.csv
+*.csv.gz
+*.json.gz
+*.log
+
+# Binary / media
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.pdf
+*.zip
+*.tar.gz

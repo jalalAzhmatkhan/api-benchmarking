@@ -1,0 +1,22 @@
+# Normalize line endings; scripts must stay LF because they run on Linux VMs and CI.
+* text=auto eol=lf
+
+*.sh      text eol=lf
+*.bash    text eol=lf
+*.conf    text eol=lf
+*.ps1     text eol=crlf
+*.cmd     text eol=crlf
+*.bat     text eol=crlf
+
+# Binary
+*.png  binary
+*.jpg  binary
+*.gz   binary
+*.jar  binary
+
+# Lockfiles: collapse in diffs, exclude from language stats
+uv.lock             linguist-generated=true -diff
+package-lock.json   linguist-generated=true -diff
+Cargo.lock          linguist-generated=true -diff
+go.sum              linguist-generated=true -diff
+packages.lock.json  linguist-generated=true -diff
