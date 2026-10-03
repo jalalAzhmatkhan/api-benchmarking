@@ -1,0 +1,52 @@
+name: Dev compose
+
+on:
+  push:
+    branches: [develop, master]
+    paths: ["deploy/compose.dev.yaml", "db/**", "contract/**", ".github/workflows/compose-dev.yml"]
+  pull_request:
+    paths: ["deploy/compose.dev.yaml", "db/**", "contract/**", ".github/workflows/compose-dev.yml"]
+
+permissions:
+  contents: read
+
+env:
+  COMPOSE: docker compose -f deploy/compose.dev.yaml
+  K6_IMAGE: grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34
+
+jobs:
+  compose:
+    name: compose.dev.yaml end to end
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Config is valid
+        run: $COMPOSE --profile mock config --quiet
+
+      - name: Start PostgreSQL and run db-init
+        run: |
+          $COMPOSE up -d postgres
+          $COMPOSE run --rm db-init
+          test "$(docker exec bench-postgres psql -U bench -d bench -tAc 'SELECT count(*) FROM items')" = "100000"
+
+      - name: reset.sh works through docker exec (SUT mode)
+        env:
+          DB_CONTAINER: bench-postgres
+        run: db/reset.sh
+
+      - name: Conformance suite passes against the mock (pinned k6 image)
+        run: |
+          $COMPOSE --profile mock up -d mock
+          for i in $(seq 1 30); do (exec 3<>/dev/tcp/127.0.0.1/8080) 2>/dev/null && break; sleep 1; done
+          docker run --rm --network host -v "$PWD/contract:/contract:ro" "$K6_IMAGE" \
+            run --quiet -e BASE_URL=http://127.0.0.1:8080 /contract/conformance.js
+
+      - name: Logs on failure
+        if: failure()
+        run: $COMPOSE --profile mock logs --no-color --tail 80
+
+      - name: Tear down
+        if: always()
+        run: $COMPOSE --profile mock down -v
