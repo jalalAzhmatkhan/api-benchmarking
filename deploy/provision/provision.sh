@@ -47,8 +47,25 @@ base_packages() {
 
 tune_kernel() {
   log "Kernel / limits / swap"
-  install -m 0644 "${DEPLOY_DIR}/sysctl/99-bench.conf" /etc/sysctl.d/99-bench.conf
+  # Ubuntu's 99-sysctl.conf (→ /etc/sysctl.conf) sorts after "99-bench" and cloud images set some of
+  # the same keys there, so: install under a name that sorts last and neutralize managed keys elsewhere.
+  rm -f /etc/sysctl.d/99-bench.conf
+  install -m 0644 "${DEPLOY_DIR}/sysctl/99-bench.conf" /etc/sysctl.d/zz-bench.conf
+  local key
+  for key in $(awk -F= '/^[a-z]/{gsub(/[ \t]/,"",$1); print $1}' /etc/sysctl.d/zz-bench.conf); do
+    sed -ri "s@^[[:space:]]*(${key//./\\.}[[:space:]]*=.*)@# overridden by zz-bench.conf: \1@" \
+      /etc/sysctl.conf $(find /etc/sysctl.d -maxdepth 1 -type f -name '*.conf' ! -name zz-bench.conf) 2>/dev/null || true
+  done
   sysctl --system >/dev/null
+  # Fail loudly if any managed value did not take effect.
+  local want have bad=0
+  while IFS='=' read -r key want; do
+    key="$(echo "${key}" | xargs)"; want="$(echo "${want}" | xargs)"
+    [[ -z "${key}" || "${key}" == \#* ]] && continue
+    have="$(sysctl -n "${key}" | xargs)"
+    if [[ "${have}" != "${want}" ]]; then echo "sysctl mismatch: ${key}=${have} (want ${want})" >&2; bad=1; fi
+  done < /etc/sysctl.d/zz-bench.conf
+  [[ ${bad} -eq 0 ]] || exit 1
   cat > /etc/security/limits.d/99-bench.conf <<'EOF'
 *     soft nofile 1048576
 *     hard nofile 1048576
@@ -83,6 +100,7 @@ host_report() {
   report "psi" "$([[ -r /proc/pressure/cpu ]] && echo enabled || echo MISSING)"
   report "nofile_limit" "$(su - "${BENCH_USER}" -c 'ulimit -n' 2>/dev/null || echo n/a)"
   report "somaxconn" "$(sysctl -n net.core.somaxconn)"
+  report "ip_local_port_range" "$(sysctl -n net.ipv4.ip_local_port_range | xargs)"
   report "steal_pct_avg_5s" "$(vmstat 1 6 | awk 'NR>3{s+=$NF; n++} END{printf "%.1f", s/n}')"
   report "reboot_required" "$([[ -f /var/run/reboot-required ]] && echo yes || echo no)"
 }
