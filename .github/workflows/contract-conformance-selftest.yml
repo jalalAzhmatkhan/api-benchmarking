@@ -1,0 +1,39 @@
+name: Conformance suite self-test
+
+# Proves contract/conformance.js passes against a correct reference server and fails against
+# servers with injected contract violations. Services themselves run the suite in service-ci.yml.
+
+on:
+  push:
+    branches: [develop, master]
+    paths: ["contract/**", ".github/workflows/contract-conformance-selftest.yml"]
+  pull_request:
+    paths: ["contract/**", ".github/workflows/contract-conformance-selftest.yml"]
+
+permissions:
+  contents: read
+
+env:
+  K6_VERSION: "2.3.0"   # keep in sync with VERSIONS.md
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install k6 (checksum-verified)
+        run: |
+          base="https://github.com/grafana/k6/releases/download/v${K6_VERSION}"
+          tarball="k6-v${K6_VERSION}-linux-amd64.tar.gz"
+          curl -fsSL -o "$tarball" "$base/$tarball"
+          curl -fsSL -o checksums.txt "$base/k6-v${K6_VERSION}-checksums.txt"
+          grep " ${tarball}\$" checksums.txt | sha256sum -c -
+          tar -xzf "$tarball"
+          sudo install -m 0755 "$(find . -type f -name k6 | head -n1)" /usr/local/bin/k6
+          k6 version
+      - name: Run self-test
+        run: bash contract/selftest.sh
