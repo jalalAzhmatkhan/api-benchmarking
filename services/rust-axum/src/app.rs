@@ -54,7 +54,6 @@ mod tests {
     use tokio::sync::oneshot;
 
     use super::*;
-    use crate::test_support::database_url;
 
     fn http_get(addr: std::net::SocketAddr, path: &str) -> String {
         let mut s = TcpStream::connect(addr).unwrap();
@@ -70,7 +69,7 @@ mod tests {
 
     #[tokio::test]
     async fn serves_the_contract_and_shuts_down_gracefully() {
-        let Some(url) = database_url() else { return };
+        let url = require_url!();
         let config = Config {
             database_url: url,
             port: 0,
@@ -108,7 +107,9 @@ mod tests {
             pool_size: 1,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let err = run(&config, listener, async {}).await.unwrap_err();
+        let err = run(&config, listener, std::future::pending())
+            .await
+            .unwrap_err();
         assert!(matches!(err, AppError::Database(_)));
         assert!(err.to_string().starts_with("database: "));
     }

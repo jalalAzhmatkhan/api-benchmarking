@@ -20,3 +20,24 @@ pub async fn pool() -> Option<PgPool> {
             .expect("test database must be reachable"),
     )
 }
+
+/// Evaluates to the test pool, or returns from the calling test when no database is configured.
+/// (A macro keeps the early-return branch out of the tests' own line coverage.)
+macro_rules! require_pool {
+    () => {
+        match $crate::test_support::pool().await {
+            Some(p) => p,
+            None => return,
+        }
+    };
+}
+
+/// Like `require_pool!` but yields the database URL.
+macro_rules! require_url {
+    () => {
+        match $crate::test_support::database_url() {
+            Some(u) => u,
+            None => return,
+        }
+    };
+}
