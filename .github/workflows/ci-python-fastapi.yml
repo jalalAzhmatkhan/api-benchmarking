@@ -1,0 +1,25 @@
+name: CI python-fastapi
+
+on:
+  push:
+    branches: [develop, master]
+    tags: ["v*"]
+    paths: ["services/python-fastapi/**", "contract/**", "db/**", "deploy/compose.dev.yaml", ".github/workflows/service-ci.yml", ".github/workflows/ci-python-fastapi.yml"]
+  pull_request:
+    paths: ["services/python-fastapi/**", "contract/**", "db/**", "deploy/compose.dev.yaml", ".github/workflows/service-ci.yml", ".github/workflows/ci-python-fastapi.yml"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  ci:
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: python-fastapi
+      toolchain: python
+      toolchain-version: "3.14"
+      with-postgres: true
+      setup-command: uv sync --frozen
+      lint-command: uv run --frozen ruff check . && uv run --frozen ruff format --check .
+      test-command: uv run --frozen pytest
