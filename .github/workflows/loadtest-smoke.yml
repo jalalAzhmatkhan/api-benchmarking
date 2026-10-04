@@ -60,19 +60,30 @@ jobs:
         run: |
           SEED_ROWS=100000 PORT=18080 python3 contract/mock/server.py & sleep 1
           for sc in s1-user-journey s2-read-heavy s3-get-only; do
-            k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e VUS=5 -e WARMUP_S=3 -e MEASURE_S=5 \
+            k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e VUS=5 -e WARMUP_S=3 -e MEASURE_S=5 -e DETAIL=1 \
               -e SCENARIO_NAME=${sc%%-*} -e RESULT_PATH=/tmp/$sc.json loadtest/scenarios/$sc.js
             python3 -c "import json,sys; r=json.load(open('/tmp/$sc.json')); assert r['failed_rate']==0 and r['checks_rate']==1 and r['requests_measure']>0 and set(r['failures_by_type'])=={'status','transport','timeout','check'}, r"
+            # lean level (search runs): no k6 checks, same requests, zero failures
+            k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e VUS=5 -e WARMUP_S=3 -e MEASURE_S=5 \
+              -e SCENARIO_NAME=${sc%%-*} -e RESULT_PATH=/tmp/$sc.lean.json loadtest/scenarios/$sc.js
+            python3 -c "import json,sys; r=json.load(open('/tmp/$sc.lean.json')); assert r['failed_rate']==0 and r['checks_rate'] is None and r['requests_measure']>0, r"
           done
           k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e THINK=T1 -e VUS=10 -e WARMUP_S=2 -e MEASURE_S=6 loadtest/scenarios/s1-user-journey.js
           k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e RATE=20 -e PRE_VUS=40 -e WARMUP_S=0 -e MEASURE_S=5 loadtest/scenarios/open-model-validate.js
           kill %1
       - name: Scenarios FAIL against a server that breaks the contract
         run: |
-          for bug in delete_200 no_location; do   # S1 only sends valid input, so validation bugs belong to the conformance suite
+          # Full-check (confirmation) levels catch both; lean (search) levels catch status bugs only (delete_200).
+          # S1 only sends valid input, so validation bugs belong to the conformance suite.
+          for bug in delete_200 no_location; do
             MOCK_BUG=$bug SEED_ROWS=100000 PORT=18081 python3 contract/mock/server.py & pid=$!; sleep 1
-            if k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18081 -e VUS=3 -e WARMUP_S=2 -e MEASURE_S=3 loadtest/scenarios/s1-user-journey.js >/dev/null 2>&1; then
+            if k6 run --quiet --no-color -e DETAIL=1 -e BASE_URL=http://127.0.0.1:18081 -e VUS=3 -e WARMUP_S=2 -e MEASURE_S=3 loadtest/scenarios/s1-user-journey.js >/dev/null 2>&1; then
               echo "bug $bug was NOT detected by S1"; kill $pid; exit 1
             fi
             kill $pid; echo "bug $bug detected"
           done
+          MOCK_BUG=delete_200 SEED_ROWS=100000 PORT=18082 python3 contract/mock/server.py & pid=$!; sleep 1
+          if k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18082 -e VUS=3 -e WARMUP_S=2 -e MEASURE_S=3 loadtest/scenarios/s1-user-journey.js >/dev/null 2>&1; then
+            echo "bug delete_200 was NOT detected by a lean S1 level"; kill $pid; exit 1
+          fi
+          kill $pid; echo "lean level detects delete_200"

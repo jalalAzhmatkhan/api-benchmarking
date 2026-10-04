@@ -18,10 +18,11 @@ function thresholds() {
     ],
     // One failed request, in ANY phase, fails the level.
     http_req_failed: [{ threshold: 'rate==0', abortOnFail: true }],
-    checks: [{ threshold: 'rate==1', abortOnFail: true }],
     // Report-only sub-metrics. `max>=0` always holds; it only makes k6 track the series.
     'http_reqs{phase:measure}': ['count>=0'],
   };
+  // Lean levels emit no k6 checks (status failures are caught by http_req_failed above).
+  if (DETAIL) t.checks = [{ threshold: 'rate==1', abortOnFail: true }];
   FAILURE_TYPES.forEach((f) => { t[`req_failures{type:${f}}`] = ['count>=0']; });
   if (DETAIL) {
     STEPS.forEach((s) => { t[`http_req_duration{phase:measure,step:${s}}`] = ['max>=0']; });
@@ -59,7 +60,7 @@ export function openOptions(rate, durationS, preAllocatedVUs, maxVUs) {
     },
     thresholds: {
       http_req_failed: [{ threshold: 'rate==0', abortOnFail: true }],
-      checks: [{ threshold: 'rate==1', abortOnFail: true }],
+      ...(DETAIL ? { checks: [{ threshold: 'rate==1', abortOnFail: true }] } : {}),
       'http_req_duration': ['max>=0'],
       dropped_iterations: ['count>=0'],
       'req_failures{type:transport}': ['count>=0'],

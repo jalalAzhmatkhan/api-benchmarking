@@ -49,7 +49,11 @@ export function call(step, method, path, body, expected) {
   return res;
 }
 
-export function parse(res) {
+// Lean levels (search runs, DETAIL off) skip body parsing and body checks: they are the load
+// generator's biggest per-request cost. `needed` forces parsing where the journey uses the body (ids).
+// Body correctness under load is verified by the confirmation runs (DETAIL=1) and conformance.
+export function parse(res, needed = false) {
+  if (!DETAIL && !needed) return undefined;
   try {
     return res.json();
   } catch (e) {
@@ -59,6 +63,12 @@ export function parse(res) {
 
 // Runs the checks; returns true only if all passed (a failed step ends the iteration).
 export function verify(res, label, conditions) {
+  if (!DETAIL) {
+    // Lean: the first condition is always the status check; no k6 `check` sample is emitted.
+    const ok = conditions[Object.keys(conditions)[0]](res);
+    if (!ok) failures.add(1, { type: 'check' });
+    return ok;
+  }
   const named = {};
   Object.keys(conditions).forEach((k) => {
     named[`${label}: ${k}`] = conditions[k];
