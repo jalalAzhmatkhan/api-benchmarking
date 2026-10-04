@@ -4,7 +4,7 @@
     <IsTestProject>true</IsTestProject>
     <!-- Coverage gate (run with /p:CollectCoverage=true): 100 % line AND branch over all src projects. -->
     <CoverletOutputFormat>cobertura</CoverletOutputFormat>
-    <Include>[Items.Domain]*,[Items.Application]*</Include>
+    <Include>[Items.Domain]*,[Items.Application]*,[Items.Infrastructure]*,[Items.Api]*</Include>
     <Threshold>100</Threshold>
     <ThresholdType>line,branch</ThresholdType>
     <ThresholdStat>total</ThresholdStat>
@@ -12,6 +12,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="coverlet.msbuild">
       <PrivateAssets>all</PrivateAssets>
@@ -19,10 +21,15 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Items.Domain\Items.Domain.csproj" />
     <ProjectReference Include="..\..\src\Items.Application\Items.Application.csproj" />
+    <ProjectReference Include="..\..\src\Items.Infrastructure\Items.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Items.Api\Items.Api.csproj" />
   </ItemGroup>
 </Project>

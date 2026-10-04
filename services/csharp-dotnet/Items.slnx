@@ -2,6 +2,8 @@
   <Folder Name="/src/">
     <Project Path="src/Items.Domain/Items.Domain.csproj" />
     <Project Path="src/Items.Application/Items.Application.csproj" />
+    <Project Path="src/Items.Infrastructure/Items.Infrastructure.csproj" />
+    <Project Path="src/Items.Api/Items.Api.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Items.Tests/Items.Tests.csproj" />
