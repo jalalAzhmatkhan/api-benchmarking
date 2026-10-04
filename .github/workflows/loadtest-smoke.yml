@@ -6,9 +6,9 @@ name: Load test smoke
 on:
   push:
     branches: [develop, master]
-    paths: ["loadtest/**", "contract/mock/**", ".github/workflows/loadtest-smoke.yml"]
+    paths: ["loadtest/**", "analysis/**", "contract/mock/**", ".github/workflows/loadtest-smoke.yml"]
   pull_request:
-    paths: ["loadtest/**", "contract/mock/**", ".github/workflows/loadtest-smoke.yml"]
+    paths: ["loadtest/**", "analysis/**", "contract/mock/**", ".github/workflows/loadtest-smoke.yml"]
 
 permissions:
   contents: read
@@ -34,8 +34,10 @@ jobs:
           grep " ${tarball}\$" checksums.txt | sha256sum -c -
           tar -xzf "$tarball"
           sudo install -m 0755 "$(find . -type f -name k6 | head -n1)" /usr/local/bin/k6
-      - name: Runner unit tests
-        run: python3 -m unittest discover -s loadtest/runner -p 'test_*.py' -v
+      - name: Runner and analysis unit tests
+        run: |
+          python3 -m unittest discover -s loadtest/runner -p 'test_*.py' -v
+          python3 -m unittest discover -s analysis -p 'test_*.py' -v
       - name: Campaign plan is seeded and complete
         run: |
           python3 loadtest/runner/campaign.py --name ci --seed 7 --dry-run > /tmp/plan1.txt
@@ -60,7 +62,7 @@ jobs:
           for sc in s1-user-journey s2-read-heavy s3-get-only; do
             k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e VUS=5 -e WARMUP_S=3 -e MEASURE_S=5 \
               -e SCENARIO_NAME=${sc%%-*} -e RESULT_PATH=/tmp/$sc.json loadtest/scenarios/$sc.js
-            python3 -c "import json,sys; r=json.load(open('/tmp/$sc.json')); assert r['failed_rate']==0 and r['checks_rate']==1 and r['requests_measure']>0, r"
+            python3 -c "import json,sys; r=json.load(open('/tmp/$sc.json')); assert r['failed_rate']==0 and r['checks_rate']==1 and r['requests_measure']>0 and set(r['failures_by_type'])=={'status','transport','timeout','check'}, r"
           done
           k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e THINK=T1 -e VUS=10 -e WARMUP_S=2 -e MEASURE_S=6 loadtest/scenarios/s1-user-journey.js
           k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e RATE=20 -e PRE_VUS=40 -e WARMUP_S=0 -e MEASURE_S=5 loadtest/scenarios/open-model-validate.js

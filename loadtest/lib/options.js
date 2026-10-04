@@ -3,6 +3,7 @@ import { MEASURE_S, RESULT_PATH, SCENARIO_NAME, SLO_MS, SUMMARY_PATH, THINK, VUS
 
 const STEPS = ['1', '2', '3', '4', '5', '6', '7'];
 const ENDPOINTS = ['get', 'post', 'put', 'delete'];
+const FAILURE_TYPES = ['status', 'transport', 'timeout', 'check'];
 
 // System tags kept small on purpose: no `url` (one series per id would explode memory).
 const SYSTEM_TAGS = ['status', 'method', 'name', 'scenario', 'error', 'error_code', 'check'];
@@ -21,6 +22,7 @@ function thresholds() {
     // Report-only sub-metrics. `max>=0` always holds; it only makes k6 track the series.
     'http_reqs{phase:measure}': ['count>=0'],
   };
+  FAILURE_TYPES.forEach((f) => { t[`req_failures{type:${f}}`] = ['count>=0']; });
   STEPS.forEach((s) => { t[`http_req_duration{phase:measure,step:${s}}`] = ['max>=0']; });
   ENDPOINTS.forEach((e) => { t[`http_req_duration{phase:measure,endpoint:${e}}`] = ['max>=0']; });
   return t;
@@ -58,6 +60,8 @@ export function openOptions(rate, durationS, preAllocatedVUs, maxVUs) {
       checks: [{ threshold: 'rate==1', abortOnFail: true }],
       'http_req_duration': ['max>=0'],
       dropped_iterations: ['count>=0'],
+      'req_failures{type:transport}': ['count>=0'],
+      'req_failures{type:timeout}': ['count>=0'],
     },
   };
 }
@@ -80,6 +84,11 @@ export function buildResult(data, extra) {
     const n = `http_req_duration{phase:measure,endpoint:${e}}`;
     if (data.metrics[n]) perEndpoint[e] = { p50: v(data, n, 'med'), p95: v(data, n, 'p(95)'), p99: v(data, n, 'p(99)'), count: v(data, n, 'count') };
   });
+  const failuresByType = {};
+  FAILURE_TYPES.forEach((f) => {
+    const n = `req_failures{type:${f}}`;
+    failuresByType[f] = data.metrics[n] ? v(data, n, 'count') || 0 : 0;
+  });
   const open = !!(extra && extra.open);
   const lat = open ? 'http_req_duration' : dur;
   return Object.assign({
@@ -94,7 +103,7 @@ export function buildResult(data, extra) {
     failed_rate: v(data, 'http_req_failed', 'rate'),
     checks_rate: v(data, 'checks', 'rate'),
     req_failures: v(data, 'req_failures', 'count'),
-    per_step: perStep, per_endpoint: perEndpoint,
+    per_step: perStep, per_endpoint: perEndpoint, failures_by_type: failuresByType,
   }, extra || {});
 }
 
