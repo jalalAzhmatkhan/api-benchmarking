@@ -62,14 +62,31 @@ def bench_dir() -> str:
     return os.environ.get("SUT_BENCH_DIR", "/opt/bench")
 
 
+def sut_local() -> bool:
+    """SUT_LOCAL=1: the 'SUT' is this machine (CI full-pipeline test); commands run through bash, not ssh."""
+    return os.environ.get("SUT_LOCAL", "0") == "1"
+
+
+def runs_dir() -> str:
+    return os.environ.get("BENCH_RUNS_DIR", "/var/lib/bench/runs")
+
+
 def sut(command: str, check: bool = True, timeout: int = 900) -> subprocess.CompletedProcess | None:
-    """Run a shell command on the SUT through the `sut` ssh alias (DRY_SUT=1 skips it)."""
+    """Run a shell command on the SUT through the `sut` ssh alias (DRY_SUT=1 skips it, SUT_LOCAL=1 runs it here)."""
     if dry_sut():
         return None
-    return subprocess.run(
-        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "sut", command],
-        check=check, capture_output=True, text=True, timeout=timeout,
-    )
+    argv = ["bash", "-c", command] if sut_local() else ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "sut", command]
+    return subprocess.run(argv, check=check, capture_output=True, text=True, timeout=timeout)
+
+
+def pull_dir(remote_dir: str, dest: Path) -> None:
+    """Copy a directory from the SUT into dest (tar over ssh, or a local tar for SUT_LOCAL=1)."""
+    dest.mkdir(parents=True, exist_ok=True)
+    producer = (["bash", "-c", f"tar -C {shlex.quote(remote_dir)} -cf - ."] if sut_local() else
+                ["ssh", "-o", "BatchMode=yes", "sut", f"tar -C {shlex.quote(remote_dir)} -cf - ."])
+    p = subprocess.Popen(producer, stdout=subprocess.PIPE)
+    subprocess.run(["tar", "-xf", "-", "-C", str(dest)], stdin=p.stdout, check=False)
+    p.wait()
 
 
 def hook(name: str, default: str, **fmt) -> str:

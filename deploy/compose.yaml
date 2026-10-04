@@ -1,0 +1,66 @@
+# Benchmark topology on the SUT (DEV_SERVER), project name "bench". Driven by deploy/stack.sh.
+# Spec: Documentation/specs/benchmark-rules.md §2 and plans/deployment-plan.md §6:
+#   * host networking for both containers (no NAT/veth cost); PostgreSQL listens on 127.0.0.1 only
+#   * NO CPU limits and no pinning: API and PostgreSQL share both vCPUs with equal cpu.weight
+#   * memory caps (3 GB each) are safety limits, not budgets
+# The api service is started only through stack.sh, which sets API_IMAGE and API_ENV_FILE.
+name: bench
+
+services:
+  postgres:
+    # Pinned by digest (VERSIONS.md)
+    image: postgres:18.6-trixie@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+    container_name: bench-postgres
+    network_mode: host
+    restart: "no"
+    shm_size: 256m
+    mem_limit: 3g
+    environment:
+      POSTGRES_USER: bench          # bootstrap role = superuser (db/reset.sh needs CHECKPOINT/pg_stat_reset)
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bench}   # the server only listens on 127.0.0.1
+      POSTGRES_DB: bench
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    volumes:
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U bench -d bench"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  db-init:
+    image: postgres:18.6-trixie@sha256:5a5a84b19854a9ffaa54082c166ff4ec27473a361e496e5ea167f298f2da9722
+    network_mode: host
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: 127.0.0.1
+      PGUSER: bench
+      PGPASSWORD: ${POSTGRES_PASSWORD:-bench}
+      PGDATABASE: bench
+    volumes:
+      - ../db:/db:ro
+    entrypoint: ["bash", "/db/init.sh"]
+
+  api:
+    profiles: ["api"]
+    image: ${API_IMAGE:-bench-api-unset}   # always set by deploy/stack.sh before the api profile starts
+    container_name: bench-api
+    network_mode: host
+    restart: "no"
+    mem_limit: 3g
+    memswap_limit: 3g
+    ulimits:
+      nofile: { soft: 1048576, hard: 1048576 }
+    env_file:
+      - ${API_ENV_FILE:-./stacks/default.env}
+    environment:
+      DATABASE_URL: postgres://bench:${POSTGRES_PASSWORD:-bench}@127.0.0.1:5432/bench
+      PORT: "8080"
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+
+volumes:
+  pgdata:

@@ -1,0 +1,94 @@
+name: Bench pipeline (stack.sh + sampler + runner + attribution)
+
+# Runs the real SUT topology on the GitHub runner (also 2 vCPU): deploy/stack.sh brings up PostgreSQL
+# and the published go-gin image from GHCR (:develop) with host networking, then the runner executes a
+# real level with SUT_LOCAL=1 (commands run locally instead of over ssh): DB reset, both samplers,
+# k6, SUT sampler data pulled into the level directory, attribution.
+
+on:
+  push:
+    branches: [develop, master]
+    paths: ["deploy/**", "monitoring/**", "loadtest/**", "analysis/**", "db/**", ".github/workflows/bench-stack-ci.yml"]
+  pull_request:
+    paths: ["deploy/**", "monitoring/**", "loadtest/**", "analysis/**", "db/**", ".github/workflows/bench-stack-ci.yml"]
+
+permissions:
+  contents: read
+
+env:
+  K6_VERSION: "2.3.0"   # keep in sync with VERSIONS.md
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUT_LOCAL: "1"
+      SUT_BENCH_DIR: ${{ github.workspace }}
+      BENCH_RUNS_DIR: /tmp/bench-runs
+      BASE_URL: http://127.0.0.1:8080
+      SAMPLER: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install k6 (checksum-verified)
+        run: |
+          base="https://github.com/grafana/k6/releases/download/v${K6_VERSION}"
+          tarball="k6-v${K6_VERSION}-linux-amd64.tar.gz"
+          curl -fsSL -o "$tarball" "$base/$tarball"
+          curl -fsSL -o checksums.txt "$base/k6-v${K6_VERSION}-checksums.txt"
+          grep " ${tarball}\$" checksums.txt | sha256sum -c -
+          tar -xzf "$tarball"
+          sudo install -m 0755 "$(find . -type f -name k6 | head -n1)" /usr/local/bin/k6
+      - name: compose.yaml is valid
+        run: docker compose -f deploy/compose.yaml --profile api config --quiet
+      - name: stack.sh up go-gin (pulls the published image anonymously)
+        run: |
+          mkdir -p "$BENCH_RUNS_DIR"
+          deploy/stack.sh up go-gin
+          deploy/stack.sh status
+          docker inspect -f 'cpu limit={{.HostConfig.NanoCpus}} cpuset="{{.HostConfig.CpusetCpus}}" mem={{.HostConfig.Memory}} net={{.HostConfig.NetworkMode}}' bench-api bench-postgres
+          # no CPU limit and no pinning, memory cap 3 GB, host networking (benchmark-rules.md §2)
+          test "$(docker inspect -f '{{.HostConfig.NanoCpus}}{{.HostConfig.CpusetCpus}}' bench-api bench-postgres | tr -d '\n')" = "00"
+          test "$(docker inspect -f '{{.HostConfig.NetworkMode}}' bench-api)" = "host"
+      - name: Conformance suite against the stack
+        run: k6 run --quiet -e BASE_URL=$BASE_URL contract/conformance.js
+      - name: One real level with samplers and attribution
+        run: |
+          python3 loadtest/runner/runlevel.py --stack go-gin --scenario s1 --think T0 --vus 20 \
+            --measure 15 --warmup 5 --out /tmp/level --raw
+          ls /tmp/level /tmp/level/sampler-sut /tmp/level/sampler-lg
+          python3 - <<'PY'
+          import json
+          meta = json.load(open("/tmp/level/meta.json"))
+          attr = json.load(open("/tmp/level/attribution.json"))
+          print("verdict", meta["verdict"], "| bound", attr["verdict"], "|", "; ".join(attr["reasons"]))
+          m = attr["metrics"]
+          for k in ("host", "api", "db", "pg", "lg"):
+              assert m.get(k), f"missing metrics for {k}"
+          print("api cpu-ms/req", m["api"].get("cpu_ms_per_request"), "db cpu-ms/req", m["db"].get("cpu_ms_per_request"))
+          print("host busy %", m["host"]["busy_pct"], "| pg commits/s", m["pg"]["commits_per_s"], "| sampler overhead %", m["host"]["sampler_overhead_pct"])
+          assert m["api"]["cpu_cores"] > 0 and m["db"]["cpu_cores"] > 0
+          assert m["pg"]["commits_per_s"] > 0
+          assert m["host"]["sampler_overhead_pct"] < 2.0, "sampler overhead"
+          assert meta["verdict"] in ("PASS", "FAIL", "LG-BOUND"), meta["verdict"]
+          PY
+      - name: Short VU search with fresh restarts (stack.sh restart)
+        run: |
+          python3 loadtest/runner/search.py --stack go-gin --scenario s1 --think T0 --out /tmp/camp/go-gin/s1-T0 \
+            --start 10 --cap 20 --warmup 4 --search-measure 8 --confirm-measure 10 --reps 1 --cooldown 2
+          python3 analysis/summarize.py /tmp/camp --out /tmp/camp/summary
+          python3 -c "import json; r=json.load(open('/tmp/camp/go-gin/s1-T0/result.json')); print(r['status'], r['vu_star']); assert r['status'] in ('OK','CAPPED','UNSTABLE','LIMITED-BY-LOADGEN','BELOW-MINIMUM')"
+      - name: Logs on failure
+        if: failure()
+        run: |
+          deploy/stack.sh status || true
+          docker logs --tail 60 bench-api || true
+          docker logs --tail 30 bench-postgres || true
+      - name: Tear down
+        if: always()
+        run: |
+          deploy/stack.sh down || true
+          docker compose -f deploy/compose.yaml down -v || true
