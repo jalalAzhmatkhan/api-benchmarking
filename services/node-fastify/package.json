@@ -1,0 +1,23 @@
+{
+  "name": "items-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Items API: shared benchmark contract, Fastify 5 + TypeScript + pg",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "test": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-exclude=\"src/**/*.test.ts\" --test-coverage-exclude=\"src/main.ts\" --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "fastify": "5.12.5",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.4",
+    "@types/pg": "8.23.1",
+    "typescript": "7.0.2"
+  }
+}
