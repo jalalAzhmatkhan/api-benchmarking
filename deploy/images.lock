@@ -1,0 +1,2 @@
+# One line per stack: <stack>=<image@sha256:digest>. Written by the release pipeline (images-lock workflow)
+# and attached to the GitHub release; stack.sh falls back to the :develop tag when a stack is absent.

@@ -44,22 +44,17 @@ def start_samplers(run_id: str, out_dir: Path) -> None:
     """LG sampler locally (out_dir/sampler-lg), SUT sampler over ssh (/var/lib/bench/runs/sut-<run_id>)."""
     subprocess.run([sys.executable, str(SAMPLER_PY), "start", "sampler-lg", "--mode", "lg", "--dir", str(out_dir)],
                    check=True, capture_output=True)
-    c.sut(c.hook("SUT_SAMPLER_START", "python3 {bench}/monitoring/sampler.py start {sid} --mode sut", sid=f"sut-{run_id}"))
+    c.sut(c.hook("SUT_SAMPLER_START", "python3 {bench}/monitoring/sampler.py start {sid} --mode sut --dir " + c.runs_dir(), sid=f"sut-{run_id}"))
 
 
 def stop_samplers(run_id: str, out_dir: Path) -> None:
     subprocess.run([sys.executable, str(SAMPLER_PY), "stop", "sampler-lg", "--dir", str(out_dir)], capture_output=True)
     sid = f"sut-{run_id}"
-    c.sut(c.hook("SUT_SAMPLER_STOP", "python3 {bench}/monitoring/sampler.py stop {sid}", sid=sid), check=False)
+    c.sut(c.hook("SUT_SAMPLER_STOP", "python3 {bench}/monitoring/sampler.py stop {sid} --dir " + c.runs_dir(), sid=sid), check=False)
     if c.dry_sut():
         return
-    dest = out_dir / "sampler-sut"
-    dest.mkdir(parents=True, exist_ok=True)
-    remote = subprocess.Popen(["ssh", "-o", "BatchMode=yes", "sut", f"tar -C /var/lib/bench/runs/{sid} -cf - ."],
-                              stdout=subprocess.PIPE)
-    subprocess.run(["tar", "-xf", "-", "-C", str(dest)], stdin=remote.stdout, check=False)
-    remote.wait()
-    c.sut(f"rm -rf /var/lib/bench/runs/{sid}", check=False)
+    c.pull_dir(f"{c.runs_dir()}/{sid}", out_dir / "sampler-sut")
+    c.sut(f"rm -rf {c.runs_dir()}/{sid}", check=False)
 
 
 def run_level(*, stack: str, scenario: str, think: str, vus: int, measure_s: int, out_dir: Path,
