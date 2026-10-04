@@ -1,0 +1,61 @@
+name: Release images lock
+
+# On a version tag: wait until every stack's image for that tag is published (by its CI workflow),
+# record the digests in images.lock and attach it to the GitHub release. Campaigns deploy that tag
+# (Deploy bench → deploy/images.lock), so results reference exact image digests.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Collect digests
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, time, urllib.error, urllib.request
+          repo = os.environ["GITHUB_REPOSITORY"].lower()
+          tag = os.environ["GITHUB_REF_NAME"]
+          stacks = sorted(p.parent.name for p in pathlib.Path("services").glob("*/Dockerfile"))
+          if not stacks:
+              raise SystemExit("no services with a Dockerfile")
+
+          def digest(stack):
+              name = f"{repo}/{stack}"
+              tok = json.load(urllib.request.urlopen(f"https://ghcr.io/token?scope=repository:{name}:pull", timeout=20))["token"]
+              req = urllib.request.Request(f"https://ghcr.io/v2/{name}/manifests/{tag}", method="HEAD", headers={
+                  "Authorization": f"Bearer {tok}",
+                  "Accept": "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.manifest.v1+json"})
+              return urllib.request.urlopen(req, timeout=20).headers["Docker-Content-Digest"]
+
+          lines, pending, deadline = {}, set(stacks), time.time() + 40 * 60
+          while pending and time.time() < deadline:
+              for s in sorted(pending):
+                  try:
+                      lines[s] = f"{s}=ghcr.io/{repo}/{s}@{digest(s)}"
+                      pending.discard(s)
+                  except (urllib.error.HTTPError, urllib.error.URLError, KeyError):
+                      pass
+              if pending:
+                  print("waiting for", sorted(pending), flush=True)
+                  time.sleep(30)
+          if pending:
+              raise SystemExit(f"images for {sorted(pending)} not published for tag {tag}")
+          header = f"# images for {tag} ({os.environ['GITHUB_SHA'][:7]}); one line per stack: <stack>=<image@sha256:digest>\n"
+          pathlib.Path("images.lock").write_text(header + "\n".join(lines[s] for s in stacks) + "\n")
+          print(pathlib.Path("images.lock").read_text())
+          PY
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" images.lock --clobber
