@@ -3,9 +3,9 @@ name: Dev compose
 on:
   push:
     branches: [develop, master]
-    paths: ["deploy/compose.dev.yaml", "db/**", "contract/**", ".github/workflows/compose-dev.yml"]
+    paths: ["deploy/compose.dev.yaml", "db/**", "contract/**", "monitoring/**", ".github/workflows/compose-dev.yml"]
   pull_request:
-    paths: ["deploy/compose.dev.yaml", "db/**", "contract/**", ".github/workflows/compose-dev.yml"]
+    paths: ["deploy/compose.dev.yaml", "db/**", "contract/**", "monitoring/**", ".github/workflows/compose-dev.yml"]
 
 permissions:
   contents: read
@@ -42,6 +42,33 @@ jobs:
           for i in $(seq 1 30); do (exec 3<>/dev/tcp/127.0.0.1/8080) 2>/dev/null && break; sleep 1; done
           docker run --rm --network host -v "$PWD/contract:/contract:ro" "$K6_IMAGE" \
             run --quiet -e BASE_URL=http://127.0.0.1:8080 /contract/conformance.js
+
+      - name: Sampler reads real cgroups and PostgreSQL through the monitor role
+        run: |
+          python3 -m unittest discover -s monitoring -p 'test_*.py' -v
+          mkdir -p /tmp/samp
+          python3 monitoring/sampler.py start live --mode sut --containers api=bench-mock,db=bench-postgres --dir /tmp/samp
+          docker run --rm --network host -v "$PWD/contract:/contract:ro" "$K6_IMAGE"             run --quiet -e BASE_URL=http://127.0.0.1:8080 /contract/conformance.js
+          sleep 3
+          python3 monitoring/sampler.py stop live --dir /tmp/samp
+          ls -la /tmp/samp/live
+          python3 - <<'PY'
+          import csv
+          d = "/tmp/samp/live/"
+          for name in ("host", "api", "db", "pg"):
+              rows = list(csv.DictReader(open(d + name + ".csv")))
+              assert len(rows) >= 3, (name, len(rows))
+              print(name, len(rows), "rows;", len(rows[0]), "columns")
+          api = list(csv.DictReader(open(d + "api.csv")))
+          assert int(api[-1]["usage_usec"]) > int(api[0]["usage_usec"]), "mock CPU time must increase while conformance runs"
+          assert api[-1]["memory_current"].isdigit() and int(api[-1]["memory_current"]) > 0
+          db = list(csv.DictReader(open(d + "db.csv")))
+          assert int(db[-1]["usage_usec"]) > 0 and "cpu_some_avg10" in db[0]
+          pg = list(csv.DictReader(open(d + "pg.csv")))
+          assert pg[-1]["xact_commit"].isdigit(), pg[-1]
+          assert int(pg[-1]["xact_commit"]) >= int(pg[0]["xact_commit"])
+          print("pg last row:", {k: pg[-1][k] for k in ("active", "idle", "xact_commit", "blks_hit")})
+          PY
 
       - name: Logs on failure
         if: failure()
