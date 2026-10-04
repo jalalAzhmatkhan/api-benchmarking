@@ -127,7 +127,6 @@ impl ItemRepository for PgItemRepository {
 mod tests {
     use super::*;
     use crate::domain::MAX_ID;
-    use crate::test_support::pool;
 
     fn input(name: &str) -> ItemInput {
         ItemInput {
@@ -140,7 +139,7 @@ mod tests {
 
     #[tokio::test]
     async fn crud_round_trip() {
-        let Some(pool) = pool().await else { return };
+        let pool = require_pool!();
         let repo = PgItemRepository::new(pool);
 
         let created = repo.create(&input("rust-crud")).await.unwrap();
@@ -184,14 +183,14 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_id_is_not_found() {
-        let Some(pool) = pool().await else { return };
+        let pool = require_pool!();
         let repo = PgItemRepository::new(pool);
         assert_eq!(repo.get(MAX_ID).await, Err(DomainError::NotFound));
     }
 
     #[tokio::test]
     async fn closed_pool_is_an_internal_error() {
-        let Some(pool) = pool().await else { return };
+        let pool = require_pool!();
         let repo = PgItemRepository::new(pool.clone());
         pool.close().await;
         assert!(matches!(repo.get(1).await, Err(DomainError::Internal(_))));
@@ -212,9 +211,7 @@ mod tests {
 
     #[tokio::test]
     async fn connect_opens_exactly_the_pool_size() {
-        let Some(url) = crate::test_support::database_url() else {
-            return;
-        };
+        let url = require_url!();
         let pool = connect(&url, 3).await.unwrap();
         assert_eq!(pool.size(), 3);
         pool.close().await;
