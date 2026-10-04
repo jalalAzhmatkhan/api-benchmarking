@@ -176,8 +176,6 @@ pub fn router<R: ItemRepository>(use_cases: Arc<UseCases<R>>) -> Router {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use axum::body::Body;
     use axum::http::{Method, Request};
     use http_body_util::BodyExt;
@@ -185,11 +183,9 @@ mod tests {
 
     use super::*;
 
-    /// In-memory repository; `fail` makes every call return that error.
-    #[derive(Default)]
+    /// Canned repository; `fail` makes every call return that error.
     struct FakeRepo {
         fail: Option<DomainError>,
-        items: Mutex<Vec<Item>>,
     }
 
     fn item(id: i64, description: Option<&str>) -> Item {
@@ -210,14 +206,7 @@ mod tests {
     impl ItemRepository for FakeRepo {
         async fn get(&self, id: i64) -> Result<Item, DomainError> {
             self.fail.clone().map_or(Ok(()), Err)?;
-            Ok(self
-                .items
-                .lock()
-                .unwrap()
-                .iter()
-                .find(|i| i.id == id)
-                .cloned()
-                .unwrap_or_else(|| item(id, None)))
+            Ok(item(id, None))
         }
         async fn create(&self, _: &ItemInput) -> Result<Item, DomainError> {
             self.fail.clone().map_or(Ok(()), Err)?;
@@ -233,10 +222,7 @@ mod tests {
     }
 
     fn app(fail: Option<DomainError>) -> Router {
-        router(Arc::new(UseCases::new(Arc::new(FakeRepo {
-            fail,
-            ..Default::default()
-        }))))
+        router(Arc::new(UseCases::new(Arc::new(FakeRepo { fail }))))
     }
 
     async fn send(
