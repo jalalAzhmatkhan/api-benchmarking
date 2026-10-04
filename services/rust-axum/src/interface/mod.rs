@@ -263,8 +263,7 @@ mod tests {
     const VALID: &str = r#"{"name":"Widget","description":"Blue","price_cents":1999,"quantity":5}"#;
 
     fn error_code(body: &str) -> String {
-        let v: serde_json::Value =
-            serde_json::from_str(body).unwrap_or_else(|_| panic!("not JSON: {body}"));
+        let v: serde_json::Value = serde_json::from_str(body).expect("response body must be JSON");
         assert!(
             v["error"]["message"]
                 .as_str()

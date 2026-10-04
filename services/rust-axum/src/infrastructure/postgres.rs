@@ -53,7 +53,7 @@ pub async fn warm(pool: &PgPool, n: u32) -> Result<(), DomainError> {
         tasks.spawn(async move { sqlx::query("SELECT pg_sleep(0.05)").execute(&pool).await });
     }
     while let Some(joined) = tasks.join_next().await {
-        joined.map_err(|e| DomainError::Internal(e.to_string()))??;
+        joined.expect("warm-up task panicked")?;
     }
     Ok(())
 }

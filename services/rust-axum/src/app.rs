@@ -107,7 +107,9 @@ mod tests {
             pool_size: 1,
         };
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let err = run(&config, listener, async {}).await.unwrap_err();
+        let err = run(&config, listener, std::future::pending())
+            .await
+            .unwrap_err();
         assert!(matches!(err, AppError::Database(_)));
         assert!(err.to_string().starts_with("database: "));
     }

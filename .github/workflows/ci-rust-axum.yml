@@ -29,5 +29,5 @@ jobs:
       test-command: |
         cargo llvm-cov --locked --ignore-filename-regex 'src/(main|test_support)\.rs' --lcov --output-path lcov.info
         echo "--- lines never executed:"
-        cargo llvm-cov report --text --ignore-filename-regex 'src/(main|test_support)\.rs'           | awk '/^\/.*\.rs:$/{f=$0} /^ *[0-9]+\| +0\|/{print f " " $0}'
+        cargo llvm-cov report --text --ignore-filename-regex 'src/(main|test_support)\.rs' | grep -E '^ +[0-9]+\| +0\|' || true
         cargo llvm-cov report --ignore-filename-regex 'src/(main|test_support)\.rs' --fail-under-lines 100
