@@ -1,0 +1,7 @@
+node_modules
+dist
+**/*.test.ts
+README.md
+COVERAGE_EXCLUSIONS.md
+Dockerfile
+.dockerignore
