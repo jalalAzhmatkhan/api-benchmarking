@@ -30,7 +30,7 @@ export function s1Journey() {
   // 2. create
   const created = itemInput(r);
   res = call(2, 'POST', '/items', created, [201]);
-  b = parse(res);
+  b = parse(res, true);
   if (!verify(res, 'step2 POST', {
     'status 201': (x) => x.status === 201,
     'echoes name and price': () => !!b && b.name === created.name && b.price_cents === created.price_cents,
@@ -103,8 +103,8 @@ export function s2Op() {
     verify(res, 'GET seeded', { 'status 200': (x) => x.status === 200 });
   } else if (op === 'POST') {
     const res = call(2, 'POST', '/items', itemInput(r), [201]);
-    const b = parse(res);
-    if (verify(res, 'POST', { 'status 201': (x) => x.status === 201, 'has id': () => !!b && Number.isInteger(b.id) })) owned.push(b.id);
+    const b = parse(res, true);
+    if (verify(res, 'POST', { 'status 201': (x) => x.status === 201, 'has id': () => !!b && Number.isInteger(b.id) }) && b) owned.push(b.id);
   } else if (op === 'PUT') {
     const id = owned[r.int(0, owned.length - 1)];
     const res = call(4, 'PUT', `/items/${id}`, itemInput(r), [200]);

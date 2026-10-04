@@ -69,10 +69,17 @@ jobs:
           kill %1
       - name: Scenarios FAIL against a server that breaks the contract
         run: |
-          for bug in delete_200 no_location; do   # S1 only sends valid input, so validation bugs belong to the conformance suite
+          # Full-check (confirmation) levels catch both; lean (search) levels catch status bugs only (delete_200).
+          # S1 only sends valid input, so validation bugs belong to the conformance suite.
+          for bug in delete_200 no_location; do
             MOCK_BUG=$bug SEED_ROWS=100000 PORT=18081 python3 contract/mock/server.py & pid=$!; sleep 1
-            if k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18081 -e VUS=3 -e WARMUP_S=2 -e MEASURE_S=3 loadtest/scenarios/s1-user-journey.js >/dev/null 2>&1; then
+            if k6 run --quiet --no-color -e DETAIL=1 -e BASE_URL=http://127.0.0.1:18081 -e VUS=3 -e WARMUP_S=2 -e MEASURE_S=3 loadtest/scenarios/s1-user-journey.js >/dev/null 2>&1; then
               echo "bug $bug was NOT detected by S1"; kill $pid; exit 1
             fi
             kill $pid; echo "bug $bug detected"
           done
+          MOCK_BUG=delete_200 SEED_ROWS=100000 PORT=18082 python3 contract/mock/server.py & pid=$!; sleep 1
+          if k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18082 -e VUS=3 -e WARMUP_S=2 -e MEASURE_S=3 loadtest/scenarios/s1-user-journey.js >/dev/null 2>&1; then
+            echo "bug delete_200 was NOT detected by a lean S1 level"; kill $pid; exit 1
+          fi
+          kill $pid; echo "lean level detects delete_200"
