@@ -78,7 +78,7 @@ def run_level(*, stack: str, scenario: str, think: str, vus: int, measure_s: int
         cmd += ["--out", f"csv={out_dir / 'raw.csv.gz'}"]
     for k, v in {
         "BASE_URL": base_url, "VUS": vus, "THINK": think, "WARMUP_S": warmup_s, "MEASURE_S": measure_s,
-        "SCENARIO_NAME": scenario, "SUMMARY_PATH": out_dir / "summary.json", "RESULT_PATH": out_dir / "result.json",
+        "SCENARIO_NAME": scenario, "DETAIL": int(raw), "SUMMARY_PATH": out_dir / "summary.json", "RESULT_PATH": out_dir / "result.json",
     }.items():
         cmd += ["-e", f"{k}={v}"]
     cmd.append(str(c.LOADTEST_DIR / "scenarios" / c.SCENARIOS[scenario]))

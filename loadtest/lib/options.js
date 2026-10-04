@@ -1,5 +1,5 @@
 // Shared k6 options (single VU pool, phase tag, thresholds) and the machine-readable summary.
-import { MEASURE_S, RESULT_PATH, SCENARIO_NAME, SLO_MS, SUMMARY_PATH, THINK, VUS, WARMUP_S } from './config.js';
+import { DETAIL, MEASURE_S, RESULT_PATH, SCENARIO_NAME, SLO_MS, SUMMARY_PATH, THINK, VUS, WARMUP_S } from './config.js';
 
 const STEPS = ['1', '2', '3', '4', '5', '6', '7'];
 const ENDPOINTS = ['get', 'post', 'put', 'delete'];
@@ -23,8 +23,10 @@ function thresholds() {
     'http_reqs{phase:measure}': ['count>=0'],
   };
   FAILURE_TYPES.forEach((f) => { t[`req_failures{type:${f}}`] = ['count>=0']; });
-  STEPS.forEach((s) => { t[`http_req_duration{phase:measure,step:${s}}`] = ['max>=0']; });
-  ENDPOINTS.forEach((e) => { t[`http_req_duration{phase:measure,endpoint:${e}}`] = ['max>=0']; });
+  if (DETAIL) {
+    STEPS.forEach((s) => { t[`http_req_duration{phase:measure,step:${s}}`] = ['max>=0']; });
+    ENDPOINTS.forEach((e) => { t[`http_req_duration{phase:measure,endpoint:${e}}`] = ['max>=0']; });
+  }
   return t;
 }
 
