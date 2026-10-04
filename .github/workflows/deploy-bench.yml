@@ -1,0 +1,111 @@
+name: Deploy bench
+
+# Manual. Copies the benchmark toolchain to both VMs (/opt/bench) and optionally runs a short dry run.
+#   sync    → DEV_SERVER gets deploy/ db/ monitoring/, K6_SERVER gets loadtest/ contract/ analysis/ monitoring/ deploy/
+#   dry-run → sync, then deploy/dryrun.sh on K6_SERVER (one stack, conformance, preflight, short search, analysis)
+# Needs the VMs provisioned by "Provision VMs". VM_IP_ADDRESS / VM_PASSWORD come from the environments.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or tag to deploy
+        type: string
+        default: develop
+      action:
+        type: choice
+        options: [dry-run, sync]
+        default: dry-run
+      stack:
+        description: Stack for the dry run
+        type: string
+        default: go-gin
+      start_vus:
+        description: First VU level of the dry-run search
+        type: string
+        default: "20"
+      cap_vus:
+        description: VU cap of the dry-run search
+        type: string
+        default: "320"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-bench
+  cancel-in-progress: false
+
+jobs:
+  sync-sut:
+    name: Sync DEV_SERVER
+    runs-on: ubuntu-latest
+    environment: DEV_SERVER
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - run: sudo apt-get update -q && sudo apt-get install -y -q sshpass
+      - name: Release image lock (tags only)
+        if: startsWith(inputs.ref, 'v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${{ inputs.ref }}" -p images.lock -D deploy --clobber || echo "no images.lock on this release; stack.sh uses :develop"
+      - name: Sync
+        env:
+          VM_HOST: ${{ secrets.VM_IP_ADDRESS }}
+          VM_USER: ${{ vars.VM_USERNAME }}
+          SSHPASS: ${{ secrets.VM_PASSWORD }}
+        run: |
+          export REVISION="${{ inputs.ref }}@$(git rev-parse --short HEAD)"
+          bash deploy/provision/sync.sh deploy db monitoring
+
+  sync-k6:
+    name: Sync K6_SERVER
+    runs-on: ubuntu-latest
+    environment: K6_SERVER
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - run: sudo apt-get update -q && sudo apt-get install -y -q sshpass
+      - name: Sync
+        env:
+          VM_HOST: ${{ secrets.VM_IP_ADDRESS }}
+          VM_USER: ${{ vars.VM_USERNAME }}
+          SSHPASS: ${{ secrets.VM_PASSWORD }}
+        run: |
+          export REVISION="${{ inputs.ref }}@$(git rev-parse --short HEAD)"
+          bash deploy/provision/sync.sh loadtest contract analysis monitoring deploy
+
+  dry-run:
+    name: Dry run on K6_SERVER
+    needs: [sync-sut, sync-k6]
+    if: inputs.action == 'dry-run'
+    runs-on: ubuntu-latest
+    environment: K6_SERVER
+    timeout-minutes: 40
+    steps:
+      - run: sudo apt-get update -q && sudo apt-get install -y -q sshpass
+      - name: Run deploy/dryrun.sh as bench on K6_SERVER
+        env:
+          VM_HOST: ${{ secrets.VM_IP_ADDRESS }}
+          VM_USER: ${{ vars.VM_USERNAME }}
+          SSHPASS: ${{ secrets.VM_PASSWORD }}
+        run: |
+          echo "::add-mask::${VM_HOST}"
+          RUN="dry-${GITHUB_RUN_ID}"
+          OPTS=(-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o PubkeyAuthentication=no
+                -o PreferredAuthentications=password,keyboard-interactive -o ConnectTimeout=20 -o ServerAliveInterval=30 -o LogLevel=ERROR)
+          printf '%s\n' "$SSHPASS" | sshpass -e ssh "${OPTS[@]}" "${VM_USER}@${VM_HOST}" \
+            "sudo -S -p '' -u bench -H env STACK='${{ inputs.stack }}' RUN_NAME='${RUN}' START='${{ inputs.start_vus }}' CAP='${{ inputs.cap_vus }}' bash /opt/bench/deploy/dryrun.sh"
+          sshpass -e ssh "${OPTS[@]}" "${VM_USER}@${VM_HOST}" "cat /tmp/${RUN}.tgz" > "$RUNNER_TEMP/${RUN}.tgz"
+          mkdir -p dry-results && tar -xzf "$RUNNER_TEMP/${RUN}.tgz" -C dry-results
+          { echo "### Dry run ${RUN} (${{ inputs.stack }})"; echo; cat "dry-results/${RUN}/summary.md"; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: dry-run-results
+          path: dry-results
+          retention-days: 14
