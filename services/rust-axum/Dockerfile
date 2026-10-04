@@ -5,10 +5,11 @@ WORKDIR /src
 # Dependency layer: compile the dependencies against a stub so source edits do not rebuild them.
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs \
-    && cargo build --release --locked && rm -rf src target/release/deps/items_api* target/release/server*
+    && cargo build --release --locked     && rm -rf src target/release/deps/items_api* target/release/.fingerprint/items-api-* target/release/server*
 COPY src ./src
 # Default release profile (opt-level 3); no LTO, no PGO, no target-cpu (benchmark-rules.md).
-RUN cargo build --release --locked
+# `touch`: the copied sources can be older than the stub build, and cargo would then keep the stub binary.
+RUN touch src/main.rs src/lib.rs && cargo build --release --locked && test -s target/release/server
 
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 RUN useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin app
