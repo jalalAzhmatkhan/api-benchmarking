@@ -24,4 +24,14 @@ jobs:
         dotnet format whitespace Items.slnx --verify-no-changes
         dotnet build Items.slnx -c Release --nologo
       test-command: |
-        dotnet test tests/Items.Tests/Items.Tests.csproj -c Release --no-build -p:CollectCoverage=true
+        rc=0
+        dotnet test tests/Items.Tests/Items.Tests.csproj -c Release --no-build -p:CollectCoverage=true || rc=$?
+        echo "--- lines never executed:"
+        python3 - <<'PY'
+        import xml.etree.ElementTree as ET
+        for cls in ET.parse("tests/Items.Tests/coverage.cobertura.xml").iter("class"):
+            miss = sorted({l.get("number") for l in cls.iter("line") if l.get("hits") == "0"}, key=int)
+            if miss:
+                print(cls.get("filename"), cls.get("name"), miss)
+        PY
+        exit $rc
