@@ -60,9 +60,13 @@ jobs:
         run: |
           SEED_ROWS=100000 PORT=18080 python3 contract/mock/server.py & sleep 1
           for sc in s1-user-journey s2-read-heavy s3-get-only; do
-            k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e VUS=5 -e WARMUP_S=3 -e MEASURE_S=5 \
+            k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e VUS=5 -e WARMUP_S=3 -e MEASURE_S=5 -e DETAIL=1 \
               -e SCENARIO_NAME=${sc%%-*} -e RESULT_PATH=/tmp/$sc.json loadtest/scenarios/$sc.js
             python3 -c "import json,sys; r=json.load(open('/tmp/$sc.json')); assert r['failed_rate']==0 and r['checks_rate']==1 and r['requests_measure']>0 and set(r['failures_by_type'])=={'status','transport','timeout','check'}, r"
+            # lean level (search runs): no k6 checks, same requests, zero failures
+            k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e VUS=5 -e WARMUP_S=3 -e MEASURE_S=5 \
+              -e SCENARIO_NAME=${sc%%-*} -e RESULT_PATH=/tmp/$sc.lean.json loadtest/scenarios/$sc.js
+            python3 -c "import json,sys; r=json.load(open('/tmp/$sc.lean.json')); assert r['failed_rate']==0 and r['checks_rate'] is None and r['requests_measure']>0, r"
           done
           k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e THINK=T1 -e VUS=10 -e WARMUP_S=2 -e MEASURE_S=6 loadtest/scenarios/s1-user-journey.js
           k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e RATE=20 -e PRE_VUS=40 -e WARMUP_S=0 -e MEASURE_S=5 loadtest/scenarios/open-model-validate.js
