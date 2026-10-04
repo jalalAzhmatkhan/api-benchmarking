@@ -13,7 +13,7 @@ public static class PoolWarmer
     {
         static async Task RunOne(NpgsqlDataSource ds, CancellationToken ct)
         {
-            await using NpgsqlCommand command = ds.CreateCommand("SELECT pg_sleep(0.05)");
+            using NpgsqlCommand command = ds.CreateCommand("SELECT pg_sleep(0.05)");
             await command.ExecuteNonQueryAsync(ct);
         }
 
