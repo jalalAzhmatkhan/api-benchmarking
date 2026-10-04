@@ -27,4 +27,7 @@ jobs:
         cargo fmt --check
         cargo clippy --all-targets --locked -- -D warnings
       test-command: |
-        cargo llvm-cov --locked --ignore-filename-regex 'src/main\.rs' --fail-under-lines 100
+        cargo llvm-cov --locked --ignore-filename-regex 'src/(main|test_support)\.rs' --lcov --output-path lcov.info
+        echo "--- lines never executed:"
+        awk -F'[:,]' '/^SF:/{f=$2} /^DA:/ && $3==0 {print f ":" $2}' lcov.info
+        cargo llvm-cov report --ignore-filename-regex 'src/(main|test_support)\.rs' --fail-under-lines 100
