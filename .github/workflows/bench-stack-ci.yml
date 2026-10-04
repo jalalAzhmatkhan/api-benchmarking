@@ -77,10 +77,10 @@ jobs:
           PY
       - name: Short VU search with fresh restarts (stack.sh restart)
         run: |
-          python3 loadtest/runner/search.py --stack go-gin --scenario s1 --think T0 --out /tmp/search \
+          python3 loadtest/runner/search.py --stack go-gin --scenario s1 --think T0 --out /tmp/camp/go-gin/s1-T0 \
             --start 10 --cap 20 --warmup 4 --search-measure 8 --confirm-measure 10 --reps 1 --cooldown 2
-          python3 analysis/summarize.py /tmp/search/.. --out /tmp/summary || true
-          python3 -c "import json; r=json.load(open('/tmp/search/result.json')); print(r['status'], r['vu_star']); assert r['status'] in ('OK','CAPPED','UNSTABLE','LIMITED-BY-LOADGEN','BELOW-MINIMUM')"
+          python3 analysis/summarize.py /tmp/camp --out /tmp/camp/summary
+          python3 -c "import json; r=json.load(open('/tmp/camp/go-gin/s1-T0/result.json')); print(r['status'], r['vu_star']); assert r['status'] in ('OK','CAPPED','UNSTABLE','LIMITED-BY-LOADGEN','BELOW-MINIMUM')"
       - name: Logs on failure
         if: failure()
         run: |
