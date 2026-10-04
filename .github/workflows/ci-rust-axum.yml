@@ -1,0 +1,30 @@
+name: CI rust-axum
+
+on:
+  push:
+    branches: [develop, master]
+    tags: ["v*"]
+    paths: ["services/rust-axum/**", "contract/**", "db/**", "deploy/compose.dev.yaml", ".github/workflows/service-ci.yml", ".github/workflows/ci-rust-axum.yml"]
+  pull_request:
+    paths: ["services/rust-axum/**", "contract/**", "db/**", "deploy/compose.dev.yaml", ".github/workflows/service-ci.yml", ".github/workflows/ci-rust-axum.yml"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  ci:
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: rust-axum
+      toolchain: rust
+      toolchain-version: "1.99.0"
+      with-postgres: true
+      setup-command: |
+        curl -fsSL https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.1/cargo-llvm-cov-x86_64-unknown-linux-gnu.tar.gz | sudo tar -xz -C /usr/local/bin
+        cargo llvm-cov --version
+      lint-command: |
+        cargo fmt --check
+        cargo clippy --all-targets --locked -- -D warnings
+      test-command: |
+        cargo llvm-cov --locked --ignore-filename-regex 'src/main\.rs' --fail-under-lines 100

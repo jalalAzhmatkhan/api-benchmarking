@@ -45,6 +45,10 @@ on:
         description: Extra container environment, one KEY=VALUE per line (e.g. WORKERS=2)
         type: string
         default: ""
+      with-postgres:
+        description: Start the dev PostgreSQL (seeded) for the unit-test job and export DATABASE_URL (integration tests count toward coverage)
+        type: boolean
+        default: false
       publish:
         description: Push the image to GHCR on develop/master/tag pushes
         type: boolean
@@ -62,6 +66,8 @@ jobs:
     name: Lint and 100 % coverage (${{ inputs.service }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      DATABASE_URL: ${{ inputs.with-postgres && 'postgres://bench:bench@127.0.0.1:5432/bench' || '' }}
     defaults:
       run:
         working-directory: ${{ inputs.path != '' && inputs.path || format('services/{0}', inputs.service) }}
@@ -98,6 +104,12 @@ jobs:
           rustup default "${{ inputs.toolchain-version || 'stable' }}"
           rustc --version
 
+      - name: PostgreSQL for the tests
+        if: inputs.with-postgres
+        working-directory: ${{ github.workspace }}
+        run: |
+          docker compose -f deploy/compose.dev.yaml up -d postgres
+          docker compose -f deploy/compose.dev.yaml run --rm db-init
       - name: Extra setup
         if: inputs.setup-command != ''
         run: ${{ inputs.setup-command }}
