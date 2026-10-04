@@ -4,6 +4,7 @@
 It exists ONLY to self-test contract/conformance.js in CI and locally. It is not a benchmarked
 service. Spec: Documentation/specs/api-contract.md.
 """
+import hashlib
 import json
 import os
 import re
@@ -17,9 +18,26 @@ BUG = os.environ.get("MOCK_BUG", "")
 MAX_ID = 9_007_199_254_740_991
 MAX_PRICE = 9_007_199_254_740_991
 MAX_QTY = 2_147_483_647
+# SEED_ROWS=N pre-"loads" ids 1..N with the same values as db/seed/seed.sql (synthesized lazily), so
+# the load-test scenarios can read seeded rows against the mock.
+SEED_ROWS = int(os.environ.get("SEED_ROWS", "0"))
+_SEED_TS = "2026-01-01T00:00:00Z"
+_gone: set[int] = set()
 _lock = threading.Lock()
 _items: dict[int, dict] = {}
 _next_id = 100_001
+
+
+def _load(item_id: int):
+    """Return the item (materializing a seed row on first touch) or None. Caller holds _lock."""
+    item = _items.get(item_id)
+    if item is None and 1 <= item_id <= SEED_ROWS and item_id not in _gone:
+        item = {"id": item_id, "name": f"item-{item_id}",
+                "description": None if item_id % 10 == 0 else "desc-" + hashlib.md5(str(item_id).encode()).hexdigest(),
+                "price_cents": (item_id * 37) % 1_000_000, "quantity": item_id % 1000,
+                "created_at": _SEED_TS, "updated_at": _SEED_TS}
+        _items[item_id] = item
+    return item
 
 
 def _now() -> str:
@@ -116,7 +134,8 @@ class Handler(BaseHTTPRequestHandler):
         if item_id is None:
             return self._error(404, "NOT_FOUND", "no such route")
         with _lock:
-            item = _items.get(item_id)
+            item = _load(item_id)
+            item = dict(item) if item else None
         if item is None:
             return self._error(404, "NOT_FOUND", "item not found")
         self._send(200, item)
@@ -150,7 +169,7 @@ class Handler(BaseHTTPRequestHandler):
         if err:
             return self._error(400, "VALIDATION_ERROR", err)
         with _lock:
-            item = _items.get(item_id)
+            item = _load(item_id)
             if item is None:
                 return self._error(404, "NOT_FOUND", "item not found")
             description = body.get("description", item["description"]) if BUG == "put_merge" else body.get("description")
@@ -166,7 +185,10 @@ class Handler(BaseHTTPRequestHandler):
         if item_id is None:
             return self._error(404, "NOT_FOUND", "no such route")
         with _lock:
-            existed = _items.pop(item_id, None) is not None
+            existed = _load(item_id) is not None
+            if existed:
+                _items.pop(item_id)
+                _gone.add(item_id)
         if not existed:
             return self._error(404, "NOT_FOUND", "item not found")
         if BUG == "delete_200":

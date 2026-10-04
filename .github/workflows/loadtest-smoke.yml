@@ -1,0 +1,56 @@
+name: Load test smoke
+
+# Runs every k6 scenario briefly against the contract mock (seeded) and checks that
+# a contract violation makes the level FAIL. Also runs the runner unit tests.
+
+on:
+  push:
+    branches: [develop, master]
+    paths: ["loadtest/**", "contract/mock/**", ".github/workflows/loadtest-smoke.yml"]
+  pull_request:
+    paths: ["loadtest/**", "contract/mock/**", ".github/workflows/loadtest-smoke.yml"]
+
+permissions:
+  contents: read
+
+env:
+  K6_VERSION: "2.3.0"   # keep in sync with VERSIONS.md
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"   # K6_SERVER runs Ubuntu 24.04's python3 (3.12)
+      - name: Install k6 (checksum-verified)
+        run: |
+          base="https://github.com/grafana/k6/releases/download/v${K6_VERSION}"
+          tarball="k6-v${K6_VERSION}-linux-amd64.tar.gz"
+          curl -fsSL -o "$tarball" "$base/$tarball"
+          curl -fsSL -o checksums.txt "$base/k6-v${K6_VERSION}-checksums.txt"
+          grep " ${tarball}\$" checksums.txt | sha256sum -c -
+          tar -xzf "$tarball"
+          sudo install -m 0755 "$(find . -type f -name k6 | head -n1)" /usr/local/bin/k6
+      - name: Scenarios pass against a correct server
+        run: |
+          SEED_ROWS=100000 PORT=18080 python3 contract/mock/server.py & sleep 1
+          for sc in s1-user-journey s2-read-heavy s3-get-only; do
+            k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e VUS=5 -e WARMUP_S=3 -e MEASURE_S=5 \
+              -e SCENARIO_NAME=${sc%%-*} -e RESULT_PATH=/tmp/$sc.json loadtest/scenarios/$sc.js
+            python3 -c "import json,sys; r=json.load(open('/tmp/$sc.json')); assert r['failed_rate']==0 and r['checks_rate']==1 and r['requests_measure']>0, r"
+          done
+          k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e THINK=T1 -e VUS=10 -e WARMUP_S=2 -e MEASURE_S=6 loadtest/scenarios/s1-user-journey.js
+          k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18080 -e RATE=20 -e PRE_VUS=40 -e WARMUP_S=0 -e MEASURE_S=5 loadtest/scenarios/open-model-validate.js
+          kill %1
+      - name: Scenarios FAIL against a server that breaks the contract
+        run: |
+          for bug in delete_200 no_location; do   # S1 only sends valid input, so validation bugs belong to the conformance suite
+            MOCK_BUG=$bug SEED_ROWS=100000 PORT=18081 python3 contract/mock/server.py & pid=$!; sleep 1
+            if k6 run --quiet --no-color -e BASE_URL=http://127.0.0.1:18081 -e VUS=3 -e WARMUP_S=2 -e MEASURE_S=3 loadtest/scenarios/s1-user-journey.js >/dev/null 2>&1; then
+              echo "bug $bug was NOT detected by S1"; kill $pid; exit 1
+            fi
+            kill $pid; echo "bug $bug detected"
+          done
