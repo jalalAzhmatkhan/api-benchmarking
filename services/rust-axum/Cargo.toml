@@ -1,0 +1,30 @@
+[package]
+name = "items-api"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "server"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8.9", default-features = false, features = ["http1", "tokio"] }
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "signal", "time", "sync"] }
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "chrono"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }
+http-body-util = "0.1"
+
+# Default `--release` profile (opt-level 3); only symbols are stripped, like Go's -s -w.
+# No LTO, no codegen-units tuning, no panic=abort, no PGO (benchmark-rules.md).
+[profile.release]
+strip = true
