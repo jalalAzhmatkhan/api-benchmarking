@@ -47,6 +47,11 @@ jobs:
           db/init.sh
           test "$(psql -tAc 'SELECT count(*) FROM items')" = "100000"
 
+      - name: monitor role exists, can read statistics and cannot log in over TCP without a password
+        run: |
+          test "$(psql -tAc "SELECT rolcanlogin AND pg_has_role('monitor','pg_monitor','member') FROM pg_roles WHERE rolname='monitor'")" = "t"
+          if PGUSER=monitor PGPASSWORD= psql -c "SELECT 1" 2>/dev/null; then echo "monitor must not log in remotely"; exit 1; fi
+
       - name: Seed is deterministic
         run: |
           psql -tAc "SELECT name, coalesce(description,'<null>'), price_cents, quantity FROM items WHERE id IN (1, 10, 99999) ORDER BY id" | tee seed-sample.txt
