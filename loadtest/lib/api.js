@@ -3,7 +3,7 @@ import http from 'k6/http';
 import { check } from 'k6';
 import exec from 'k6/execution';
 import { Counter } from 'k6/metrics';
-import { BASE_URL, WARMUP_S } from './config.js';
+import { BASE_URL, DETAIL, WARMUP_S } from './config.js';
 
 // Failures by type so the analysis can tell a server fault from a load-generator/network fault:
 // status | transport | timeout | check
@@ -12,6 +12,20 @@ export const failures = new Counter('req_failures');
 const ENDPOINT = { GET: 'get', POST: 'post', PUT: 'put', DELETE: 'delete' };
 const HEADERS = { 'Content-Type': 'application/json' };
 const K6_TIMEOUT_CODE = 1050;
+
+// Reused per-call objects: building them on every request is measurable load-generator CPU.
+const expectedCache = {};
+function expectedStatuses(list) {
+  const key = list.join(',');
+  return expectedCache[key] || (expectedCache[key] = http.expectedStatuses(...list));
+}
+const tagCache = {};
+function tagsFor(step, method, path) {
+  const name = `${method} ${path.indexOf('/', 1) > 0 ? '/items/{id}' : '/items'}`; // keeps cardinality low
+  if (!DETAIL) return { name };
+  const key = `${step}|${name}`;
+  return tagCache[key] || (tagCache[key] = { step: String(step), endpoint: ENDPOINT[method], name });
+}
 
 // Latency thresholds only look at the measure phase; failures count in every phase.
 function setPhase() {
@@ -24,12 +38,8 @@ export function call(step, method, path, body, expected) {
   const res = http.request(method, BASE_URL + path, body === undefined ? null : JSON.stringify(body), {
     headers: HEADERS,
     timeout: '5s',
-    responseCallback: http.expectedStatuses(...expected),
-    tags: {
-      step: String(step),
-      endpoint: ENDPOINT[method],
-      name: `${method} ${path.indexOf('/', 1) > 0 ? '/items/{id}' : '/items'}`, // keeps cardinality low
-    },
+    responseCallback: expectedStatuses(expected),
+    tags: tagsFor(step, method, path),
   });
   if (expected.indexOf(res.status) === -1) {
     let type = 'status';

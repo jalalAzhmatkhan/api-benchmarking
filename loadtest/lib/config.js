@@ -11,6 +11,9 @@ export const MEASURE_S = int('MEASURE_S', 120);
 export const SEED = int('SEED', 1); // payload PRNG seed
 export const SEED_ROWS = int('SEED_ROWS', 100000); // rows created by db/seed/seed.sql
 export const THINK = (__ENV.THINK || 'T0').toUpperCase(); // T0 = none, T1 = uniform 0.5-1.5 s
+// DETAIL=1 adds per-step / per-endpoint tags and trend metrics (confirmation runs). Search levels
+// stay lean: every extra tagged metric costs k6 CPU, and the load generator is the scarce resource.
+export const DETAIL = __ENV.DETAIL === '1';
 export const SLO_MS = int('SLO_MS', 1000);
 export const SUMMARY_PATH = __ENV.SUMMARY_PATH || '';
 export const RESULT_PATH = __ENV.RESULT_PATH || '';
