@@ -20,6 +20,8 @@ from pathlib import Path
 import common as c
 
 SAMPLER_PY = c.REPO_DIR / "monitoring" / "sampler.py"
+sys.path.insert(0, str(c.REPO_DIR / "analysis"))
+NON_SERVER = ("INVALID", "LG-BOUND", "NETWORK-BOUND")  # attribution verdicts that are not the server's fault
 
 LG_CPU_LIMIT = 80.0   # monitoring plan §4 rule 2
 LG_MEM_LIMIT = 85.0
@@ -117,7 +119,22 @@ def run_level(*, stack: str, scenario: str, think: str, vus: int, measure_s: int
         "raw": raw, "fresh": fresh, "sampler": sampler,
         "k6_started_ms": k6_started_ms, "k6_finished_ms": k6_finished_ms,
     })
-    c.log(f"verdict {verdict} (k6 exit {k6_exit}) p50={summary['p50']} p95={summary['p95']} p99={summary['p99']}")
+    if sampler:
+        import attribute
+        attr = attribute.analyze(out_dir, pool=int(os.environ.get("DB_POOL_SIZE", "10")))
+        summary["bound"] = attr["verdict"]
+        m = attr.get("metrics", {})
+        summary["api_cpu_ms_per_req"] = (m.get("api") or {}).get("cpu_ms_per_request")
+        summary["db_cpu_ms_per_req"] = (m.get("db") or {}).get("cpu_ms_per_request")
+        if verdict == "FAIL" and attr["verdict"] in NON_SERVER:
+            verdict = summary["verdict"] = attr["verdict"]  # re-run / stop: not a server verdict
+            (out_dir / "verdict.txt").write_text(verdict + chr(10))
+            meta = c.read_json(out_dir / "meta.json", {})
+            meta.update(verdict=verdict, bound=attr["verdict"])
+            c.write_json(out_dir / "meta.json", meta)
+    summary["dir"] = str(out_dir)
+    c.log(f"verdict {verdict} (k6 exit {k6_exit}) p50={summary['p50']} p95={summary['p95']} p99={summary['p99']}"
+          + (f" bound={summary['bound']}" if sampler else ""))
     return summary
 
 
