@@ -1,0 +1,7 @@
+**/*_test.go
+cover.out
+cover.filtered
+README.md
+COVERAGE_EXCLUSIONS.md
+Dockerfile
+.dockerignore
