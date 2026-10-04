@@ -1,0 +1,24 @@
+name: CI java-springboot
+
+on:
+  push:
+    branches: [develop, master]
+    tags: ["v*"]
+    paths: ["services/java-springboot/**", "contract/**", "db/**", "deploy/compose.dev.yaml", ".github/workflows/service-ci.yml", ".github/workflows/ci-java-springboot.yml"]
+  pull_request:
+    paths: ["services/java-springboot/**", "contract/**", "db/**", "deploy/compose.dev.yaml", ".github/workflows/service-ci.yml", ".github/workflows/ci-java-springboot.yml"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  ci:
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: java-springboot
+      toolchain: java
+      toolchain-version: "25"
+      with-postgres: true
+      lint-command: ./mvnw -B -ntp -q -DskipTests compile
+      test-command: ./mvnw -B -ntp verify
