@@ -1,0 +1,48 @@
+[project]
+name = "items-api"
+version = "0.1.0"
+description = "Items API: shared benchmark contract, FastAPI + gunicorn/uvicorn workers + asyncpg"
+requires-python = ">=3.14"
+# Versions: ../../VERSIONS.md. uvloop and httptools are what `uvicorn[standard]` adds on top of
+# uvicorn (FastAPI's recommended install); the other extras (websockets, watchfiles...) are unused.
+dependencies = [
+    "fastapi==0.142.2",
+    "pydantic==2.13.5",
+    "uvicorn==0.54.0",
+    "uvloop==0.23.0; sys_platform != 'win32'",   # no Windows build; the image is Linux
+    "httptools==0.8.0",
+    "gunicorn==26.2.0",
+    "uvicorn-worker==0.4.0",
+    "asyncpg==0.31.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
+    "httpx==0.28.1",
+    "ruff==0.16.10",
+]
+
+[tool.uv]
+package = false   # an application, not a distributable: sources are used from src/ (PYTHONPATH)
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# 100 % line AND branch coverage gate over the whole app package (COVERAGE_EXCLUSIONS.md).
+addopts = "--cov=app --cov-branch --cov-report=term-missing --cov-fail-under=100"
+
+[tool.coverage.run]
+source = ["app"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
