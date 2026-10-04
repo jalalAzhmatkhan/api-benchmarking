@@ -25,9 +25,9 @@ def write_csv(path: Path, rows: list[dict]):
 
 def make_level(root: Path, *, host_busy=95.0, steal=0.0, api_cores=1.0, db_cores=0.8, mem_limit=3 << 30,
                api_mem=200 << 20, db_mem=300 << 20, active=3, wait_lock=0, wait_io=0, lg_busy=30.0, lg_mem_used=40.0,
-               oom=0, mem_psi=0.0, nic_mbit=50.0, listen_overflows=0, drop_rows=0, failures=None, requests=100_000):
+               oom=0, mem_psi=0.0, nic_mbit=50.0, listen_overflows=0, drop_rows=0, failures=None, requests=100_000, k6_exit=0):
     """Samples every second for 50 s (covers warm-up+measure). 2 CPUs: jiffies at 100 Hz."""
-    meta = {"k6_started_ms": T0, "k6_finished_ms": T0 + 45_000, "warmup_s": WARMUP, "measure_s": MEASURE, "vus": 100, "verdict": "FAIL"}
+    meta = {"k6_started_ms": T0, "k6_finished_ms": T0 + 45_000, "warmup_s": WARMUP, "measure_s": MEASURE, "vus": 100, "verdict": "FAIL", "k6_exit": k6_exit}
     (root).mkdir(parents=True, exist_ok=True)
     (root / "meta.json").write_text(json.dumps(meta))
     (root / "result.json").write_text(json.dumps({"requests_measure": requests, "failures_by_type": failures or {}}))
@@ -95,6 +95,11 @@ class AttributionTests(unittest.TestCase):
     def test_invalid_on_steal_or_missing_samples(self):
         self.assertEqual(self.verdict(steal=7)[0], "INVALID")
         self.assertEqual(self.verdict(drop_rows=6)[0], "INVALID")  # 6 of 28 samples missing (> 2 %)
+
+    def test_threshold_abort_does_not_turn_missing_samples_into_invalid(self):
+        # k6 aborted the level early (exit 99): the window is short by design, the SLO verdict stands
+        self.assertEqual(self.verdict(drop_rows=6, k6_exit=99)[0], "HOST-CPU:SHARED")
+        self.assertEqual(self.verdict(steal=7, k6_exit=99)[0], "INVALID")  # steal still invalidates
 
     def test_network_bound(self):
         self.assertEqual(self.verdict(host_busy=40, nic_mbit=900)[0] in ("NETWORK-BOUND", "API-RUNTIME-BOUND"), True)

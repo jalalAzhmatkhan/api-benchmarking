@@ -218,7 +218,9 @@ def analyze(level_dir: Path, pool: int = 10, nic_mbit: float | None = None) -> d
         "lg": lg_metrics(window(load_csv(lg_dir / "host.csv"), t0, t1), window(load_csv(lg_dir / "k6.csv"), t0, t1)),
         "requests_measure": reqs,
     }
-    expected = (t1 - t0) / 1000
+    # A level that k6 aborted on a threshold (exit 99) ends early, so the sampler window is shorter than
+    # planned: missing samples say nothing about the sampler, and the SLO verdict already stands.
+    expected = 0 if meta.get("k6_exit") == 99 else (t1 - t0) / 1000
     verdict, reasons = decide(metrics, pool=pool, nic_mbit=nic_mbit, failures=result.get("failures_by_type") or {},
                               expected_samples=expected)
     out = {"verdict": verdict, "reasons": reasons, "metrics": metrics, "k6_verdict": meta.get("verdict"), "vus": meta.get("vus")}
