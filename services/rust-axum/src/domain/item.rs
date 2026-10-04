@@ -51,11 +51,17 @@ impl ItemInput {
         if !(1..=MAX_NAME_LEN).contains(&self.name.chars().count()) {
             return Err(invalid("name must be 1-100 characters"));
         }
-        if self.description.as_ref().is_some_and(|d| d.chars().count() > MAX_DESCRIPTION_LEN) {
+        if self
+            .description
+            .as_ref()
+            .is_some_and(|d| d.chars().count() > MAX_DESCRIPTION_LEN)
+        {
             return Err(invalid("description must be at most 1000 characters"));
         }
         if !(0..=MAX_PRICE_CENTS).contains(&self.price_cents) {
-            return Err(invalid("price_cents must be an integer in 0..9007199254740991"));
+            return Err(invalid(
+                "price_cents must be an integer in 0..9007199254740991",
+            ));
         }
         if !(0..=MAX_QUANTITY).contains(&self.quantity) {
             return Err(invalid("quantity must be an integer in 0..2147483647"));
@@ -106,11 +112,25 @@ mod tests {
     #[test]
     fn valid_input_and_description_variants() {
         assert!(input().validate().is_ok());
-        for description in [None, Some(String::new()), Some("d".repeat(1000)), Some("é".repeat(1000))] {
-            let i = ItemInput { description, ..input() };
+        for description in [
+            None,
+            Some(String::new()),
+            Some("d".repeat(1000)),
+            Some("é".repeat(1000)),
+        ] {
+            let i = ItemInput {
+                description,
+                ..input()
+            };
             assert!(i.validate().is_ok());
         }
-        assert!(is_validation(ItemInput { description: Some("d".repeat(1001)), ..input() }.validate()));
+        assert!(is_validation(
+            ItemInput {
+                description: Some("d".repeat(1001)),
+                ..input()
+            }
+            .validate()
+        ));
     }
 
     #[test]
@@ -126,16 +146,42 @@ mod tests {
     #[test]
     fn numeric_bounds() {
         for price_cents in [0, MAX_PRICE_CENTS] {
-            assert!(ItemInput { price_cents, ..input() }.validate().is_ok());
+            assert!(
+                ItemInput {
+                    price_cents,
+                    ..input()
+                }
+                .validate()
+                .is_ok()
+            );
         }
         for price_cents in [-1, MAX_PRICE_CENTS + 1] {
-            assert!(is_validation(ItemInput { price_cents, ..input() }.validate()));
+            assert!(is_validation(
+                ItemInput {
+                    price_cents,
+                    ..input()
+                }
+                .validate()
+            ));
         }
         for quantity in [0, MAX_QUANTITY] {
-            assert!(ItemInput { quantity, ..input() }.validate().is_ok());
+            assert!(
+                ItemInput {
+                    quantity,
+                    ..input()
+                }
+                .validate()
+                .is_ok()
+            );
         }
         for quantity in [-1, MAX_QUANTITY + 1] {
-            assert!(is_validation(ItemInput { quantity, ..input() }.validate()));
+            assert!(is_validation(
+                ItemInput {
+                    quantity,
+                    ..input()
+                }
+                .validate()
+            ));
         }
     }
 
@@ -143,6 +189,9 @@ mod tests {
     fn error_display() {
         assert_eq!(DomainError::NotFound.to_string(), "item not found");
         assert_eq!(DomainError::Validation("bad".into()).to_string(), "bad");
-        assert_eq!(DomainError::Internal("db".into()).to_string(), "internal error: db");
+        assert_eq!(
+            DomainError::Internal("db".into()).to_string(),
+            "internal error: db"
+        );
     }
 }

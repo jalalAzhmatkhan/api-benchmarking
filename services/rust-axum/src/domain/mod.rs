@@ -3,8 +3,8 @@
 mod item;
 
 pub use item::{
-    Item, ItemInput, ItemRepository, validate_id, MAX_DESCRIPTION_LEN, MAX_ID, MAX_NAME_LEN,
-    MAX_PRICE_CENTS, MAX_QUANTITY,
+    Item, ItemInput, ItemRepository, MAX_DESCRIPTION_LEN, MAX_ID, MAX_NAME_LEN, MAX_PRICE_CENTS,
+    MAX_QUANTITY, validate_id,
 };
 
 /// Errors the domain and its ports can produce.
