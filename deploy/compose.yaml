@@ -47,7 +47,7 @@ services:
 
   api:
     profiles: ["api"]
-    image: ${API_IMAGE:?set by deploy/stack.sh}
+    image: ${API_IMAGE:-bench-api-unset}   # always set by deploy/stack.sh before the api profile starts
     container_name: bench-api
     network_mode: host
     restart: "no"

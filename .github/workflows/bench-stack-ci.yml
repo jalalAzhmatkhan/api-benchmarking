@@ -43,7 +43,7 @@ jobs:
           tar -xzf "$tarball"
           sudo install -m 0755 "$(find . -type f -name k6 | head -n1)" /usr/local/bin/k6
       - name: compose.yaml is valid
-        run: API_IMAGE=x docker compose -f deploy/compose.yaml --profile api config --quiet
+        run: docker compose -f deploy/compose.yaml --profile api config --quiet
       - name: stack.sh up go-gin (pulls the published image anonymously)
         run: |
           mkdir -p "$BENCH_RUNS_DIR"
